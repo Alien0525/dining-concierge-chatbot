@@ -5,11 +5,11 @@ Handles intent validation and fulfillment for the Lex chatbot
 
 import json
 import boto3
+import config
 from datetime import datetime
 
-# We'll use these after creating SQS queue
 sqs = boto3.client('sqs')
-SQS_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/YOUR_ACCOUNT/restaurant-requests'
+SQS_QUEUE_URL = config.SQS_QUEUE_URL
 
 def lambda_handler(event, context):
     """
@@ -144,11 +144,11 @@ def handle_dining_suggestions(slots, event):
         'timestamp': datetime.now().isoformat()
     }
     
-    # We'll enable this after creating SQS queue
-    # sqs.send_message(
-    #     QueueUrl=SQS_QUEUE_URL,
-    #     MessageBody=json.dumps(message_body)
-    # )
+    # Push messages to SQS queue
+    sqs.send_message(
+        QueueUrl=SQS_QUEUE_URL,
+        MessageBody=json.dumps(message_body)
+    )
     
     return {
         'dialogAction': {
