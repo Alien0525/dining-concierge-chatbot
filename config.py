@@ -27,3 +27,5 @@ TARGET_LOCATION = 'Manhattan, NY'
 DYNAMODB_TABLE_NAME = 'yelp-restaurants'
 OPENSEARCH_INDEX = 'restaurants'
 SQS_QUEUE_NAME = 'restaurant-requests'
+SQS_QUEUE_URL = os.environ.get('SQS_QUEUE_URL')
+FROM_EMAIL = os.environ.get('FROM_EMAIL')
