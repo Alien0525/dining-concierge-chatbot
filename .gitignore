@@ -1,0 +1,33 @@
+Create `.gitignore` to prevent committing sensitive data:
+```
+restaurants.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
+venv/
+env/
+ENV/
+
+# Data files
+*.json
+*.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AWS
+.aws/
+credentials
+config
