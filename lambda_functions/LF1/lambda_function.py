@@ -5,195 +5,121 @@ Handles intent validation and fulfillment for the Lex chatbot
 
 import json
 import boto3
-import config
 from datetime import datetime
+import os
 
+# SQS client
 sqs = boto3.client('sqs')
-SQS_QUEUE_URL = config.SQS_QUEUE_URL
+SQS_QUEUE_URL = os.environ.get('SQS_QUEUE_URL')
 
 def lambda_handler(event, context):
     """
-    Lex calls this function before responding to user.
-    
-    Flow:
-    1. Lex identifies user intent (Greeting, ThankYou, DiningSuggestions)
-    2. This function validates/processes the intent
-    3. Returns instructions to Lex on how to respond
-    
-    Args:
-        event: Contains intent name, slots, session attributes
-        context: Lambda context
-    
-    Returns:
-        Lex response directive (what to say, what to do next)
+    Lex V2 code hook handler.
     """
     
-    # Get intent information from Lex
-    intent_name = event.get('currentIntent', {}).get('name')
-    slots = event.get('currentIntent', {}).get('slots', {})
+    print(f"Received event: {json.dumps(event)}")
     
-    # Route to appropriate handler based on intent
+    # Get intent information
+    intent_name = event['sessionState']['intent']['name']
+    invocation_source = event['invocationSource']
+    
+    # Route to appropriate handler
     if intent_name == 'GreetingIntent':
-        return handle_greeting()
+        return close(event, 'Fulfilled', 'Hi there, how can I help?')
     
     elif intent_name == 'ThankYouIntent':
-        return handle_thank_you()
+        return close(event, 'Fulfilled', "You're welcome!")
     
     elif intent_name == 'DiningSuggestionsIntent':
-        return handle_dining_suggestions(slots, event)
+        return handle_dining_suggestions(event, invocation_source)
     
-    # Fallback for unknown intents
-    return {
-        'dialogAction': {
-            'type': 'Close',
-            'fulfillmentState': 'Failed',
-            'message': {
-                'contentType': 'PlainText',
-                'content': 'I did not understand that.'
-            }
-        }
-    }
+    # Fallback
+    return close(event, 'Failed', 'I did not understand that.')
 
-def handle_greeting():
-    """
-    Responds to greeting intent.
-    Simple acknowledgment to start conversation.
-    """
-    return {
-        'dialogAction': {
-            'type': 'Close',
-            'fulfillmentState': 'Fulfilled',
-            'message': {
-                'contentType': 'PlainText',
-                'content': 'Hi there, how can I help?'
-            }
-        }
-    }
 
-def handle_thank_you():
+def handle_dining_suggestions(event, invocation_source):
     """
-    Responds to thank you intent.
-    Polite acknowledgment.
-    """
-    return {
-        'dialogAction': {
-            'type': 'Close',
-            'fulfillmentState': 'Fulfilled',
-            'message': {
-                'contentType': 'PlainText',
-                'content': "You're welcome!"
-            }
-        }
-    }
-
-def handle_dining_suggestions(slots, event):
-    """
-    Main intent - collects restaurant preferences and sends to SQS.
-    
-    Slots to collect:
-    - Location: Where to dine (must be Manhattan)
-    - Cuisine: Type of food (Japanese, Italian, etc.)
-    - DiningTime: When to dine
-    - NumberOfPeople: Party size
-    - Email: Where to send recommendations
-    
-    Flow:
-    1. Validate each slot as user provides it
-    2. Once all collected, push to SQS
-    3. Confirm to user
+    Handle DiningSuggestionsIntent - collect slots and validate
     """
     
-    # Check if we're in validation or fulfillment
-    invocation_source = event.get('invocationSource')
+    slots = event['sessionState']['intent']['slots']
     
+    # DialogCodeHook - validate slots as user provides them
     if invocation_source == 'DialogCodeHook':
-        # Lex is asking us to validate slots during conversation
+        # Validate slots
         validation_result = validate_slots(slots)
         
         if not validation_result['isValid']:
-            # Slot is invalid - tell Lex to re-prompt
-            return {
-                'dialogAction': {
-                    'type': 'ElicitSlot',
-                    'intentName': 'DiningSuggestionsIntent',
-                    'slots': slots,
-                    'slotToElicit': validation_result['violatedSlot'],
-                    'message': {
-                        'contentType': 'PlainText',
-                        'content': validation_result['message']
-                    }
-                }
-            }
+            # Invalid slot - ask again
+            return elicit_slot(
+                event,
+                validation_result['violatedSlot'],
+                validation_result['message']
+            )
         
-        # All slots valid so far, continue collecting
-        return {
-            'dialogAction': {
-                'type': 'Delegate',
-                'slots': slots
-            }
+        # All provided slots are valid - continue collecting
+        return delegate(event)
+    
+    # FulfillmentCodeHook - all slots collected, push to SQS
+    elif invocation_source == 'FulfillmentCodeHook':
+        # Extract slot values
+        location = get_slot_value(slots, 'Location')
+        cuisine = get_slot_value(slots, 'Cuisine')
+        dining_time = get_slot_value(slots, 'DiningTime')
+        num_people = get_slot_value(slots, 'NumberOfPeople')
+        email = get_slot_value(slots, 'Email')
+        
+        # Push to SQS
+        message_body = {
+            'location': location,
+            'cuisine': cuisine,
+            'dining_time': dining_time,
+            'num_people': num_people,
+            'email': email,
+            'timestamp': datetime.now().isoformat()
         }
-    
-    # All slots collected - fulfill the intent
-    # Push request to SQS queue
-    message_body = {
-        'location': slots.get('Location'),
-        'cuisine': slots.get('Cuisine'),
-        'dining_time': slots.get('DiningTime'),
-        'num_people': slots.get('NumberOfPeople'),
-        'email': slots.get('Email'),
-        'timestamp': datetime.now().isoformat()
-    }
-    
-    # Push messages to SQS queue
-    sqs.send_message(
-        QueueUrl=SQS_QUEUE_URL,
-        MessageBody=json.dumps(message_body)
-    )
-    
-    return {
-        'dialogAction': {
-            'type': 'Close',
-            'fulfillmentState': 'Fulfilled',
-            'message': {
-                'contentType': 'PlainText',
-                'content': "You're all set. Expect my suggestions shortly! Have a good day."
-            }
-        }
-    }
+        
+        try:
+            sqs.send_message(
+                QueueUrl=SQS_QUEUE_URL,
+                MessageBody=json.dumps(message_body)
+            )
+            print(f"Sent message to SQS: {message_body}")
+        except Exception as e:
+            print(f"Error sending to SQS: {e}")
+        
+        return close(event, 'Fulfilled', "You're all set. Expect my suggestions shortly! Have a good day.")
+
 
 def validate_slots(slots):
     """
-    Validates user input for each slot.
-    
-    Rules:
-    - Location: Must be Manhattan
-    - Cuisine: Must be one we have data for
-    - DiningTime: Valid date/time format
-    - NumberOfPeople: Positive number
-    - Email: Basic email format check
+    Validate slot values
     """
     
-    location = slots.get('Location')
-    cuisine = slots.get('Cuisine')
-    num_people = slots.get('NumberOfPeople')
-    email = slots.get('Email')
+    location = get_slot_value(slots, 'Location')
+    cuisine = get_slot_value(slots, 'Cuisine')
+    num_people = get_slot_value(slots, 'NumberOfPeople')
+    email = get_slot_value(slots, 'Email')
     
     # Validate location (Manhattan only)
-    if location and location.lower() not in ['manhattan', 'nyc', 'new york']:
-        return {
-            'isValid': False,
-            'violatedSlot': 'Location',
-            'message': f"Sorry, I can't fulfill requests for {location}. Please enter Manhattan."
-        }
+    if location:
+        location_lower = location.lower()
+        if 'manhattan' not in location_lower and 'nyc' not in location_lower and 'new york' not in location_lower:
+            return {
+                'isValid': False,
+                'violatedSlot': 'Location',
+                'message': f"Sorry, I can't fulfill requests for {location}. Please enter Manhattan."
+            }
     
-    # Validate cuisine (must match our data)
+    # Validate cuisine
     valid_cuisines = ['japanese', 'italian', 'chinese', 'mexican', 'indian', 'thai', 'korean']
-    if cuisine and cuisine.lower() not in valid_cuisines:
-        return {
-            'isValid': False,
-            'violatedSlot': 'Cuisine',
-            'message': f"Sorry, I don't have suggestions for {cuisine}. Try Japanese, Italian, Chinese, Mexican, Indian, Thai, or Korean."
-        }
+    if cuisine:
+        if cuisine.lower() not in valid_cuisines:
+            return {
+                'isValid': False,
+                'violatedSlot': 'Cuisine',
+                'message': f"Sorry, I don't have suggestions for {cuisine}. Try Japanese, Italian, Chinese, Mexican, Indian, Thai, or Korean."
+            }
     
     # Validate number of people
     if num_people:
@@ -213,12 +139,90 @@ def validate_slots(slots):
             }
     
     # Basic email validation
-    if email and '@' not in email:
-        return {
-            'isValid': False,
-            'violatedSlot': 'Email',
-            'message': 'Please enter a valid email address.'
-        }
+    if email:
+        if '@' not in email or '.' not in email:
+            return {
+                'isValid': False,
+                'violatedSlot': 'Email',
+                'message': 'Please enter a valid email address.'
+            }
     
-    # All valid
     return {'isValid': True}
+
+
+def get_slot_value(slots, slot_name):
+    """
+    Extract slot value from Lex V2 slot structure
+    Handles different slot value formats
+    """
+    if slots.get(slot_name) and slots[slot_name].get('value'):
+        slot_value = slots[slot_name]['value']
+        
+        # Try different value fields in order of preference
+        if 'interpretedValue' in slot_value:
+            return slot_value['interpretedValue']
+        elif 'originalValue' in slot_value:
+            return slot_value['originalValue']
+        elif 'resolvedValues' in slot_value and slot_value['resolvedValues']:
+            return slot_value['resolvedValues'][0]
+    
+    return None
+
+
+def delegate(event):
+    """
+    Tell Lex to continue collecting slots
+    """
+    return {
+        'sessionState': {
+            'dialogAction': {
+                'type': 'Delegate'
+            },
+            'intent': event['sessionState']['intent']
+        }
+    }
+
+
+def elicit_slot(event, slot_to_elicit, message):
+    """
+    Ask for a specific slot again
+    """
+    return {
+        'sessionState': {
+            'dialogAction': {
+                'type': 'ElicitSlot',
+                'slotToElicit': slot_to_elicit
+            },
+            'intent': event['sessionState']['intent']
+        },
+        'messages': [
+            {
+                'contentType': 'PlainText',
+                'content': message
+            }
+        ]
+    }
+
+
+def close(event, fulfillment_state, message):
+    """
+    Close the intent
+    """
+    return {
+        'sessionState': {
+            'dialogAction': {
+                'type': 'Close'
+            },
+            'intent': {
+                'name': event['sessionState']['intent']['name'],
+                'slots': event['sessionState']['intent']['slots'],
+                'state': fulfillment_state
+            }
+        },
+        'messages': [
+            {
+                'contentType': 'PlainText',
+                'content': message
+            }
+        ]
+    }

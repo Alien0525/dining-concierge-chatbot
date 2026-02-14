@@ -8,7 +8,7 @@ import boto3
 import random
 from decimal import Decimal
 from boto3.dynamodb.conditions import Key
-import config
+import os
 
 # AWS clients
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
@@ -16,9 +16,9 @@ sqs = boto3.client('sqs', region_name='us-east-1')
 ses = boto3.client('ses', region_name='us-east-1')
 
 # Configuration
-DYNAMODB_TABLE = 'yelp-restaurants'
-SQS_QUEUE_URL = config.SQS_QUEUE_URL
-FROM_EMAIL = 'your_verified_email@example.com'  # Update after SES setup
+DYNAMODB_TABLE = os.environ.get('DYNAMODB_TABLE', 'yelp-restaurants')
+SQS_QUEUE_URL = os.environ.get('SQS_QUEUE_URL')
+FROM_EMAIL = os.environ.get('FROM_EMAIL')
 
 def lambda_handler(event, context):
     """
