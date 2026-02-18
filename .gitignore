@@ -1,7 +1,5 @@
 Create `.gitignore` to prevent committing sensitive data:
 ```
-restaurants.json
-
 # Python
 __pycache__/
 *.py[cod]

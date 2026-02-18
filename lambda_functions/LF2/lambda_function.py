@@ -61,14 +61,14 @@ def lambda_handler(event, context):
             dining_time = body.get('dining_time', 'today')
             email = body.get('email')
             
-            print(f"Request: {cuisine} for {num_people} people at {dining_time}")
+            print(f"Request: {cuisine} in {location} for {num_people} people at {dining_time}")
             
-            # Get restaurant recommendations
-            restaurants = get_restaurant_recommendations(cuisine)
+            # Get restaurant recommendations (now with location filtering)
+            restaurants = get_restaurant_recommendations(cuisine, location)
             
             # Send email
             if restaurants and email:
-                send_email(email, restaurants, cuisine, num_people, dining_time)
+                send_email(email, restaurants, cuisine, location, num_people, dining_time)
             
             # Delete message from queue (processed successfully)
             sqs.delete_message(
@@ -83,21 +83,15 @@ def lambda_handler(event, context):
             # Message stays in queue, will be retried
     
     return {'statusCode': 200, 'body': f'Processed {len(messages)} messages'}
-
-def get_restaurant_recommendations(cuisine, count=3):
+    
+def get_restaurant_recommendations(cuisine, location, count=3):
     """
-    Query DynamoDB for random restaurants of given cuisine.
-    
-    Since we don't have OpenSearch yet, we'll:
-    1. Scan DynamoDB for all restaurants with matching cuisine
-    2. Randomly select 3
-    
-    Note: This is inefficient for large datasets but works fine for 1,327 items
-    When we add OpenSearch, we'll query it for IDs first
+    Query DynamoDB for restaurants matching cuisine and location
     
     Args:
         cuisine: Cuisine type (e.g., 'Japanese')
-        count: Number of recommendations to return
+        location: Area/borough (e.g., 'Brooklyn')
+        count: Number of recommendations
     
     Returns:
         List of restaurant dictionaries
@@ -106,26 +100,59 @@ def get_restaurant_recommendations(cuisine, count=3):
     table = dynamodb.Table(DYNAMODB_TABLE)
     
     try:
-        # Scan table for matching cuisine
-        # FilterExpression = only return items where Cuisine matches
+        # Map common location names to Area values
+        location_mapping = {
+            'manhattan': 'Manhattan',
+            'brooklyn': 'Brooklyn',
+            'queens': 'Queens',
+            'bronx': 'Bronx',
+            'staten island': 'Staten Island',
+            'jersey city': 'Jersey City',
+            'hoboken': 'Hoboken',
+            'long island city': 'Long Island City'
+        }
+        
+        # Normalize location
+        area = location_mapping.get(location.lower(), location)
+        
+        print(f"Searching for {cuisine} restaurants in {area}")
+        
+        # Scan with filter for both cuisine and area
         response = table.scan(
-            FilterExpression='Cuisine = :cuisine',
-            ExpressionAttributeValues={':cuisine': cuisine}
+            FilterExpression='Cuisine = :cuisine AND Area = :area',
+            ExpressionAttributeValues={
+                ':cuisine': cuisine,
+                ':area': area
+            }
         )
         
         restaurants = response.get('Items', [])
         
+        print(f"Found {len(restaurants)} {cuisine} restaurants in {area}")
+        
         if not restaurants:
-            print(f"No {cuisine} restaurants found")
+            # Fallback: try without area filter
+            print(f"No restaurants found in {area}, trying {cuisine} anywhere...")
+            response = table.scan(
+                FilterExpression='Cuisine = :cuisine',
+                ExpressionAttributeValues={':cuisine': cuisine}
+            )
+            restaurants = response.get('Items', [])
+        
+        if not restaurants:
             return []
         
-        # Randomly select 'count' restaurants
+        # Randomly select restaurants
         selected = random.sample(restaurants, min(count, len(restaurants)))
         
-        # Convert Decimal to float for email formatting
+        # Convert Decimal to float for JSON serialization
         for restaurant in selected:
             if 'Rating' in restaurant:
                 restaurant['Rating'] = float(restaurant['Rating'])
+            if 'Latitude' in restaurant:
+                restaurant['Latitude'] = float(restaurant['Latitude'])
+            if 'Longitude' in restaurant:
+                restaurant['Longitude'] = float(restaurant['Longitude'])
         
         return selected
         
@@ -133,25 +160,9 @@ def get_restaurant_recommendations(cuisine, count=3):
         print(f"Error querying DynamoDB: {e}")
         return []
 
-def send_email(to_email, restaurants, cuisine, num_people, dining_time):
+def send_email(to_email, restaurants, cuisine, location, num_people, dining_time):
     """
-    Send restaurant recommendations via SES.
-    
-    Email format matches assignment example:
-    "Hello! Here are my Japanese restaurant suggestions for 2 people,
-    for today at 7 pm:
-    1. Sushi Nakazawa, located at 23 Commerce St
-    2. Jin Ramen, located at 3183 Broadway
-    3. Nikko, located at 1280 Amsterdam Ave
-    
-    Enjoy your meal!"
-    
-    Args:
-        to_email: Recipient email
-        restaurants: List of restaurant dicts
-        cuisine: Cuisine type
-        num_people: Party size
-        dining_time: When dining
+    Send restaurant recommendations via SES
     """
     
     # Build restaurant list
@@ -159,10 +170,11 @@ def send_email(to_email, restaurants, cuisine, num_people, dining_time):
     for i, restaurant in enumerate(restaurants, 1):
         name = restaurant.get('Name', 'Unknown')
         address = restaurant.get('Address', 'Address not available')
-        restaurant_list.append(f"{i}. {name}, located at {address}")
+        area = restaurant.get('Area', location)
+        restaurant_list.append(f"{i}. {name}, located at {address} ({area})")
     
     # Format email body
-    email_body = f"""Hello! Here are my {cuisine} restaurant suggestions for {num_people} people, for {dining_time}:
+    email_body = f"""Hello! Here are my {cuisine} restaurant suggestions in {location} for {num_people} people, for {dining_time}:
 
 {chr(10).join(restaurant_list)}
 
@@ -171,11 +183,11 @@ Enjoy your meal!"""
     # Send via SES
     try:
         response = ses.send_email(
-            Source=FROM_EMAIL,  # Must be verified in SES
+            Source=FROM_EMAIL,
             Destination={'ToAddresses': [to_email]},
             Message={
                 'Subject': {
-                    'Data': f'{cuisine} Restaurant Recommendations',
+                    'Data': f'{cuisine} Restaurant Recommendations in {location}',
                     'Charset': 'UTF-8'
                 },
                 'Body': {

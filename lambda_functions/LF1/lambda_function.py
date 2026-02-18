@@ -3,6 +3,14 @@ LF1 - Lex Code Hook
 Handles intent validation and fulfillment for the Lex chatbot
 """
 
+# check the confirmation section in the dining suggestions intent
+
+#instance type - t3.small / medium
+#general purpose - gp3
+#data nodes - 1
+#abs storage - 10 minimal
+#opensearch -postman add few restaurants
+
 import json
 import boto3
 from datetime import datetime
@@ -96,29 +104,40 @@ def validate_slots(slots):
     Validate slot values
     """
     
+    # Extract slot values first (THIS WAS MISSING)
     location = get_slot_value(slots, 'Location')
     cuisine = get_slot_value(slots, 'Cuisine')
     num_people = get_slot_value(slots, 'NumberOfPeople')
     email = get_slot_value(slots, 'Email')
     
-    # Validate location (Manhattan only)
+    # Now validate them
+    # Validate location (expanded to multiple areas)
+    valid_locations = [
+        'manhattan', 'brooklyn', 'queens', 'bronx', 'staten island',
+        'jersey city', 'hoboken', 'long island city'
+    ]
+    
     if location:
         location_lower = location.lower()
-        if 'manhattan' not in location_lower and 'nyc' not in location_lower and 'new york' not in location_lower:
+        if not any(valid_loc in location_lower for valid_loc in valid_locations):
             return {
                 'isValid': False,
                 'violatedSlot': 'Location',
-                'message': f"Sorry, I can't fulfill requests for {location}. Please enter Manhattan."
+                'message': 'Sorry, I only have suggestions for Manhattan, Brooklyn, Queens, Bronx, Staten Island, Jersey City, Hoboken, or Long Island City.'
             }
     
     # Validate cuisine
-    valid_cuisines = ['japanese', 'italian', 'chinese', 'mexican', 'indian', 'thai', 'korean']
+    valid_cuisines = [
+        'japanese', 'italian', 'chinese', 'mexican', 'indian', 'thai', 'korean',
+        'french', 'mediterranean', 'american', 'vietnamese', 'spanish'
+    ]
+    
     if cuisine:
         if cuisine.lower() not in valid_cuisines:
             return {
                 'isValid': False,
                 'violatedSlot': 'Cuisine',
-                'message': f"Sorry, I don't have suggestions for {cuisine}. Try Japanese, Italian, Chinese, Mexican, Indian, Thai, or Korean."
+                'message': f"Sorry, I don't have suggestions for {cuisine}. Try Japanese, Italian, Chinese, Mexican, Indian, Thai, Korean, French, Mediterranean, American, Vietnamese, or Spanish."
             }
     
     # Validate number of people
