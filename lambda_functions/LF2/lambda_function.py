@@ -84,23 +84,21 @@ def lambda_handler(event, context):
     
     return {'statusCode': 200, 'body': f'Processed {len(messages)} messages'}
     
-def get_restaurant_recommendations(cuisine, location, count=3):
+def get_restaurant_recommendations(cuisine, location, price_range=None, count=5):
     """
-    Query DynamoDB for restaurants matching cuisine and location
+    Query DynamoDB for restaurants with filters
     
     Args:
-        cuisine: Cuisine type (e.g., 'Japanese')
-        location: Area/borough (e.g., 'Brooklyn')
-        count: Number of recommendations
-    
-    Returns:
-        List of restaurant dictionaries
+        cuisine: Cuisine type
+        location: Area/borough
+        price_range: Price filter ($, $$, $$$, $$$$) - optional
+        count: Number of recommendations (default 5)
     """
     
     table = dynamodb.Table(DYNAMODB_TABLE)
     
     try:
-        # Map common location names to Area values
+        # Map location
         location_mapping = {
             'manhattan': 'Manhattan',
             'brooklyn': 'Brooklyn',
@@ -112,40 +110,40 @@ def get_restaurant_recommendations(cuisine, location, count=3):
             'long island city': 'Long Island City'
         }
         
-        # Normalize location
         area = location_mapping.get(location.lower(), location)
         
-        print(f"Searching for {cuisine} restaurants in {area}")
-        
-        # Scan with filter for both cuisine and area
-        response = table.scan(
-            FilterExpression='Cuisine = :cuisine AND Area = :area',
-            ExpressionAttributeValues={
+        # Build filter expression
+        if price_range and price_range.lower() != 'any':
+            filter_expr = 'Cuisine = :cuisine AND Area = :area AND PriceRange = :price'
+            expr_values = {
+                ':cuisine': cuisine,
+                ':area': area,
+                ':price': price_range
+            }
+        else:
+            filter_expr = 'Cuisine = :cuisine AND Area = :area'
+            expr_values = {
                 ':cuisine': cuisine,
                 ':area': area
             }
+        
+        print(f"Searching: {cuisine} in {area}, Price: {price_range or 'Any'}")
+        
+        # Scan with filter
+        response = table.scan(
+            FilterExpression=filter_expr,
+            ExpressionAttributeValues=expr_values
         )
         
         restaurants = response.get('Items', [])
         
-        print(f"Found {len(restaurants)} {cuisine} restaurants in {area}")
+        # Sort by rating (descending)
+        restaurants.sort(key=lambda x: float(x.get('Rating', 0)), reverse=True)
         
-        if not restaurants:
-            # Fallback: try without area filter
-            print(f"No restaurants found in {area}, trying {cuisine} anywhere...")
-            response = table.scan(
-                FilterExpression='Cuisine = :cuisine',
-                ExpressionAttributeValues={':cuisine': cuisine}
-            )
-            restaurants = response.get('Items', [])
+        # Take top 5 (or count specified)
+        selected = restaurants[:min(count, len(restaurants))]
         
-        if not restaurants:
-            return []
-        
-        # Randomly select restaurants
-        selected = random.sample(restaurants, min(count, len(restaurants)))
-        
-        # Convert Decimal to float for JSON serialization
+        # Convert Decimal to float
         for restaurant in selected:
             if 'Rating' in restaurant:
                 restaurant['Rating'] = float(restaurant['Rating'])
@@ -154,31 +152,54 @@ def get_restaurant_recommendations(cuisine, location, count=3):
             if 'Longitude' in restaurant:
                 restaurant['Longitude'] = float(restaurant['Longitude'])
         
+        print(f"Found {len(restaurants)} total, returning top {len(selected)} by rating")
+        
         return selected
         
     except Exception as e:
         print(f"Error querying DynamoDB: {e}")
         return []
-
+    
 def send_email(to_email, restaurants, cuisine, location, num_people, dining_time):
     """
     Send restaurant recommendations via SES
     """
     
-    # Build restaurant list
+    # Build restaurant list with full details
     restaurant_list = []
     for i, restaurant in enumerate(restaurants, 1):
         name = restaurant.get('Name', 'Unknown')
-        address = restaurant.get('Address', 'Address not available')
+        address = restaurant.get('Address', 'N/A')
         area = restaurant.get('Area', location)
-        restaurant_list.append(f"{i}. {name}, located at {address} ({area})")
+        rating = restaurant.get('Rating', 'N/A')
+        review_count = restaurant.get('ReviewCount', 0)
+        phone = restaurant.get('Phone', 'N/A')
+        price = restaurant.get('PriceRange', 'N/A')
+        
+        # Google Maps link
+        maps_query = f"{name} {address}".replace(' ', '+')
+        maps_link = f"https://www.google.com/maps/search/?api=1&query={maps_query}"
+        
+        restaurant_info = f"""{i}. {name} {"⭐" * int(float(rating))} ({rating}/5, {review_count} reviews)
+   📍 {address}, {area}
+   💰 Price: {price}
+   📞 {phone}
+   🗺️ View on Maps: {maps_link}
+"""
+        restaurant_list.append(restaurant_info)
     
     # Format email body
-    email_body = f"""Hello! Here are my {cuisine} restaurant suggestions in {location} for {num_people} people, for {dining_time}:
+    email_body = f"""Hello! 
+
+Here are my top {len(restaurants)} {cuisine} restaurant recommendations in {location} for {num_people} people, for {dining_time}:
 
 {chr(10).join(restaurant_list)}
 
-Enjoy your meal!"""
+Enjoy your meal! 🍽️
+
+---
+Powered by Dining Concierge Chatbot
+"""
     
     # Send via SES
     try:
@@ -187,7 +208,7 @@ Enjoy your meal!"""
             Destination={'ToAddresses': [to_email]},
             Message={
                 'Subject': {
-                    'Data': f'{cuisine} Restaurant Recommendations in {location}',
+                    'Data': f'🍽️ Top {len(restaurants)} {cuisine} Restaurants in {location}',
                     'Charset': 'UTF-8'
                 },
                 'Body': {
@@ -198,8 +219,7 @@ Enjoy your meal!"""
                 }
             }
         )
-        print(f"Email sent to {to_email}, MessageId: {response['MessageId']}")
-    
+        print(f"Email sent to {to_email}")
     except Exception as e:
         print(f"Error sending email: {e}")
         raise
