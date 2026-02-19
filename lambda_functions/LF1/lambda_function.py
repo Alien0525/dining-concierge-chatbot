@@ -96,6 +96,7 @@ def handle_dining_suggestions(event, invocation_source, session_id):
         save_user_preferences(user_id, {
             'location': location,
             'cuisine': cuisine,
+            'email': email,
             'num_people': num_people,
             'last_search_time': datetime.now().isoformat()
         })
