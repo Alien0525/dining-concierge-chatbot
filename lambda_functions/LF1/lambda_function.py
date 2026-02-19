@@ -1,5 +1,6 @@
 """
-LF1 - Lex Code Hook with Conversation Memory
+LF1 - Enhanced Lex Code Hook with Smart Conversation Memory
+Handles: repeat searches, partial changes, date collection, email pre-fill
 """
 
 import json
@@ -18,7 +19,7 @@ USER_PREFS_TABLE = 'user-preferences'
 
 def lambda_handler(event, context):
     """
-    Lex V2 code hook handler with memory
+    Lex V2 code hook handler with enhanced memory
     """
     
     print(f"Received event: {json.dumps(event)}")
@@ -34,6 +35,9 @@ def lambda_handler(event, context):
     elif intent_name == 'ThankYouIntent':
         return close(event, 'Fulfilled', "You're welcome!")
     
+    elif intent_name == 'RepeatLastSearchIntent':
+        return handle_repeat_search(event, session_id)
+    
     elif intent_name == 'DiningSuggestionsIntent':
         return handle_dining_suggestions(event, invocation_source, session_id)
     
@@ -42,7 +46,7 @@ def lambda_handler(event, context):
 
 def handle_greeting(event, session_id):
     """
-    Enhanced greeting with personalization based on history
+    Enhanced greeting with personalization and action buttons
     """
     
     # Try to get user's last search
@@ -50,27 +54,64 @@ def handle_greeting(event, session_id):
     last_search = get_user_preferences(user_id)
     
     if last_search:
-        # Personalized greeting
+        # Personalized greeting with options
         cuisine = last_search.get('cuisine', '')
         location = last_search.get('location', '')
         
         message = f"Welcome back! Last time you searched for {cuisine} food in {location}. Would you like the same, or something different today?"
     else:
         # First-time greeting
-        message = "Hi there! I can help you find restaurants in the NYC area (Manhattan, Brooklyn, Queens, Bronx, Staten Island, Jersey City, Hoboken, and Long Island City). What are you looking for today?"
+        message = "Hi there! I can help you find restaurants in and around NYC. What are you looking for today?"
     
     return close(event, 'Fulfilled', message)
 
 
-def handle_dining_suggestions(event, invocation_source, session_id):
+def handle_repeat_search(event, session_id):
     """
-    Handle DiningSuggestionsIntent with memory
+    Handle when user says "same", "repeat", "yes same", etc.
+    Allows partial modifications: same cuisine different location, etc.
     """
     
     slots = event['sessionState']['intent']['slots']
+    invocation_source = event['invocationSource']
     
-    # DialogCodeHook - validate slots
+    # Get user preferences
+    user_id = get_user_id(session_id)
+    last_search = get_user_preferences(user_id)
+    
+    if not last_search:
+        return close(event, 'Fulfilled', "I don't have your previous search. Let's start fresh! What would you like?")
+    
+    # DialogCodeHook - Check what user wants to change
     if invocation_source == 'DialogCodeHook':
+        # Get what user has specified
+        location = get_slot_value(slots, 'Location')
+        cuisine = get_slot_value(slots, 'Cuisine')
+        dining_date = get_slot_value(slots, 'DiningDate')
+        dining_time = get_slot_value(slots, 'DiningTime')
+        num_people = get_slot_value(slots, 'NumberOfPeople')
+        use_same_email = get_slot_value(slots, 'UseSameEmail')
+        email = get_slot_value(slots, 'Email')
+        
+        # Pre-fill from last search if not specified
+        if not location:
+            slots['Location'] = create_slot_value(last_search.get('location'))
+        
+        if not cuisine:
+            slots['Cuisine'] = create_slot_value(last_search.get('cuisine'))
+        
+        # If user said use same email or hasn't answered yet
+        if use_same_email and use_same_email.lower() in ['yes', 'y', 'yeah', 'sure']:
+            slots['Email'] = create_slot_value(last_search.get('email'))
+        elif not use_same_email and not email and last_search.get('email'):
+            # Ask if they want to use same email
+            return elicit_slot(
+                event,
+                'UseSameEmail',
+                f"Should I use your previous email ({last_search.get('email')})? (Yes/No)"
+            )
+        
+        # Validate slots
         validation_result = validate_slots(slots)
         
         if not validation_result['isValid']:
@@ -82,17 +123,16 @@ def handle_dining_suggestions(event, invocation_source, session_id):
         
         return delegate(event)
     
-    # FulfillmentCodeHook - save preferences and push to SQS
+    # FulfillmentCodeHook - Send to SQS
     elif invocation_source == 'FulfillmentCodeHook':
-        # Extract slot values
-        location = get_slot_value(slots, 'Location')
-        cuisine = get_slot_value(slots, 'Cuisine')
+        location = get_slot_value(slots, 'Location') or last_search.get('location')
+        cuisine = get_slot_value(slots, 'Cuisine') or last_search.get('cuisine')
+        dining_date = get_slot_value(slots, 'DiningDate')
         dining_time = get_slot_value(slots, 'DiningTime')
-        num_people = get_slot_value(slots, 'NumberOfPeople')
-        email = get_slot_value(slots, 'Email')
+        num_people = get_slot_value(slots, 'NumberOfPeople') or last_search.get('num_people')
+        email = get_slot_value(slots, 'Email') or last_search.get('email')
         
-        # Save user preferences for next time
-        user_id = get_user_id(session_id)
+        # Save updated preferences
         save_user_preferences(user_id, {
             'location': location,
             'cuisine': cuisine,
@@ -105,6 +145,7 @@ def handle_dining_suggestions(event, invocation_source, session_id):
         message_body = {
             'location': location,
             'cuisine': cuisine,
+            'dining_date': dining_date,
             'dining_time': dining_time,
             'num_people': num_people,
             'email': email,
@@ -123,20 +164,111 @@ def handle_dining_suggestions(event, invocation_source, session_id):
         return close(event, 'Fulfilled', "You're all set. Expect my suggestions shortly! Have a good day.")
 
 
+def handle_dining_suggestions(event, invocation_source, session_id):
+    """
+    Handle new DiningSuggestionsIntent with date support and email pre-fill
+    """
+    
+    slots = event['sessionState']['intent']['slots']
+    
+    # DialogCodeHook - validate slots and pre-fill email if available
+    if invocation_source == 'DialogCodeHook':
+        # Get user preferences
+        user_id = get_user_id(session_id)
+        last_search = get_user_preferences(user_id)
+        
+        # Pre-fill email if not provided and we have it
+        email = get_slot_value(slots, 'Email')
+        use_same_email = get_slot_value(slots, 'UseSameEmail')
+        
+        if last_search and not email:
+            if use_same_email and use_same_email.lower() in ['yes', 'y', 'yeah', 'sure']:
+                slots['Email'] = create_slot_value(last_search.get('email'))
+            elif not use_same_email and last_search.get('email'):
+                # Ask if they want to use previous email
+                return elicit_slot(
+                    event,
+                    'UseSameEmail',
+                    f"Should I use your previous email ({last_search.get('email')})? (Yes/No)"
+                )
+        
+        # Validate slots
+        validation_result = validate_slots(slots)
+        
+        if not validation_result['isValid']:
+            return elicit_slot(
+                event,
+                validation_result['violatedSlot'],
+                validation_result['message']
+            )
+        
+        return delegate(event)
+    
+    # FulfillmentCodeHook - save preferences and push to SQS
+    elif invocation_source == 'FulfillmentCodeHook':
+        # Extract slot values
+        location = get_slot_value(slots, 'Location')
+        cuisine = get_slot_value(slots, 'Cuisine')
+        dining_date = get_slot_value(slots, 'DiningDate')
+        dining_time = get_slot_value(slots, 'DiningTime')
+        num_people = get_slot_value(slots, 'NumberOfPeople')
+        email = get_slot_value(slots, 'Email')
+        
+        # Save user preferences for next time
+        user_id = get_user_id(session_id)
+        save_user_preferences(user_id, {
+            'location': location,
+            'cuisine': cuisine,
+            'email': email,
+            'num_people': num_people,
+            'last_search_time': datetime.now().isoformat()
+        })
+        
+        # Push to SQS
+        message_body = {
+            'location': location,
+            'cuisine': cuisine,
+            'dining_date': dining_date,
+            'dining_time': dining_time,
+            'num_people': num_people,
+            'email': email,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        try:
+            sqs.send_message(
+                QueueUrl=SQS_QUEUE_URL,
+                MessageBody=json.dumps(message_body)
+            )
+            print(f"Sent message to SQS: {message_body}")
+        except Exception as e:
+            print(f"Error sending to SQS: {e}")
+        
+        return close(event, 'Fulfilled', "You're all set. Expect my suggestions shortly! Have a good day.")
+
+
+def create_slot_value(value):
+    """Create a proper slot value structure for Lex"""
+    if not value:
+        return None
+    
+    return {
+        'shape': 'Scalar',
+        'value': {
+            'originalValue': str(value),
+            'interpretedValue': str(value),
+            'resolvedValues': [str(value)]
+        }
+    }
+
+
 def get_user_id(session_id):
-    """
-    Generate consistent user ID from session ID
-    """
+    """Generate consistent user ID from session ID"""
     return hashlib.md5(session_id.encode()).hexdigest()[:16]
 
 
 def get_user_preferences(user_id):
-    """
-    Retrieve user's last search preferences from DynamoDB
-    
-    Returns:
-        dict or None: User preferences if found
-    """
+    """Retrieve user's last search preferences from DynamoDB"""
     try:
         table = dynamodb.Table(USER_PREFS_TABLE)
         response = table.get_item(Key={'UserId': user_id})
@@ -150,13 +282,7 @@ def get_user_preferences(user_id):
 
 
 def save_user_preferences(user_id, preferences):
-    """
-    Save user's search preferences to DynamoDB
-    
-    Args:
-        user_id: Unique user identifier
-        preferences: Dict with location, cuisine, etc.
-    """
+    """Save user's search preferences to DynamoDB"""
     try:
         table = dynamodb.Table(USER_PREFS_TABLE)
         
@@ -172,9 +298,7 @@ def save_user_preferences(user_id, preferences):
 
 
 def validate_slots(slots):
-    """
-    Validate slot values
-    """
+    """Validate slot values"""
     
     location = get_slot_value(slots, 'Location')
     cuisine = get_slot_value(slots, 'Cuisine')
@@ -240,9 +364,7 @@ def validate_slots(slots):
 
 
 def get_slot_value(slots, slot_name):
-    """
-    Extract slot value from Lex V2 slot structure
-    """
+    """Extract slot value from Lex V2 slot structure"""
     if slots.get(slot_name) and slots[slot_name].get('value'):
         slot_value = slots[slot_name]['value']
         
@@ -261,7 +383,8 @@ def delegate(event):
     return {
         'sessionState': {
             'dialogAction': {'type': 'Delegate'},
-            'intent': event['sessionState']['intent']
+            'intent': event['sessionState']['intent'],
+            'sessionAttributes': event['sessionState'].get('sessionAttributes', {})
         }
     }
 
@@ -274,7 +397,8 @@ def elicit_slot(event, slot_to_elicit, message):
                 'type': 'ElicitSlot',
                 'slotToElicit': slot_to_elicit
             },
-            'intent': event['sessionState']['intent']
+            'intent': event['sessionState']['intent'],
+            'sessionAttributes': event['sessionState'].get('sessionAttributes', {})
         },
         'messages': [
             {
@@ -292,9 +416,10 @@ def close(event, fulfillment_state, message):
             'dialogAction': {'type': 'Close'},
             'intent': {
                 'name': event['sessionState']['intent']['name'],
-                'slots': event['sessionState']['intent']['slots'],
+                'slots': event['sessionState']['intent'].get('slots', {}),
                 'state': fulfillment_state
-            }
+            },
+            'sessionAttributes': event['sessionState'].get('sessionAttributes', {})
         },
         'messages': [
             {

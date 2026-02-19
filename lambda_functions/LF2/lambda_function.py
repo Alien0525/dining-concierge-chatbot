@@ -1,6 +1,7 @@
 """
-LF2 - Queue Worker
+LF2 - Enhanced Queue Worker
 Polls SQS, queries DynamoDB, sends email via SES
+Now with dining date support
 """
 
 import json
@@ -8,6 +9,7 @@ import boto3
 import random
 import os
 from decimal import Decimal
+from datetime import datetime
 
 # AWS clients
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
@@ -48,17 +50,18 @@ def lambda_handler(event, context):
             cuisine = body.get('cuisine', '').capitalize()
             location = body.get('location', 'Manhattan')
             num_people = body.get('num_people', '2')
-            dining_time = body.get('dining_time', 'today')
+            dining_date = body.get('dining_date', 'today')
+            dining_time = body.get('dining_time', 'tonight')
             email = body.get('email')
             
-            print(f"Request: {cuisine} in {location} for {num_people} people at {dining_time}")
+            print(f"Request: {cuisine} in {location} for {num_people} people on {dining_date} at {dining_time}")
             
             # Get restaurant recommendations
             restaurants = get_restaurant_recommendations(cuisine, location, count=5)
             
             # Send email
             if restaurants and email:
-                send_email(email, restaurants, cuisine, location, num_people, dining_time)
+                send_email(email, restaurants, cuisine, location, num_people, dining_date, dining_time)
             
             # Delete message from queue
             sqs.delete_message(
@@ -70,6 +73,8 @@ def lambda_handler(event, context):
             
         except Exception as e:
             print(f"Error processing message: {e}")
+            import traceback
+            print(traceback.format_exc())
     
     return {'statusCode': 200, 'body': f'Processed {len(messages)} messages'}
 
@@ -78,14 +83,6 @@ def get_restaurant_recommendations(cuisine, location, count=5):
     """
     Query DynamoDB for restaurants matching cuisine and location
     Returns top results sorted by rating
-    
-    Args:
-        cuisine: Cuisine type (e.g., 'Japanese')
-        location: Area/borough (e.g., 'Brooklyn')
-        count: Number of recommendations (default 5)
-    
-    Returns:
-        List of restaurant dictionaries
     """
     
     table = dynamodb.Table(DYNAMODB_TABLE)
@@ -154,13 +151,38 @@ def get_restaurant_recommendations(cuisine, location, count=5):
         
     except Exception as e:
         print(f"Error querying DynamoDB: {e}")
+        import traceback
+        print(traceback.format_exc())
         return []
 
 
-def send_email(to_email, restaurants, cuisine, location, num_people, dining_time):
+def send_email(to_email, restaurants, cuisine, location, num_people, dining_date, dining_time):
     """
     Send restaurant recommendations via SES with enhanced formatting
     """
+    
+    # Format the date and time nicely
+    try:
+        # Parse dining_time if it's in HH:MM format
+        if ':' in str(dining_time):
+            hour, minute = dining_time.split(':')
+            hour = int(hour)
+            if hour >= 12:
+                time_str = f"{hour if hour == 12 else hour-12}:{minute} PM"
+            else:
+                time_str = f"{hour}:{minute} AM"
+        else:
+            time_str = str(dining_time)
+    except:
+        time_str = str(dining_time)
+    
+    # Format dining date
+    if str(dining_date).lower() == 'today':
+        date_str = 'today'
+    elif str(dining_date).lower() == 'tomorrow':
+        date_str = 'tomorrow'
+    else:
+        date_str = f"on {dining_date}"
     
     # Build restaurant list with full details
     restaurant_list = []
@@ -195,7 +217,7 @@ def send_email(to_email, restaurants, cuisine, location, num_people, dining_time
     # Format email body
     email_body = f"""Hello! 
 
-Here are my top {len(restaurants)} {cuisine} restaurant recommendations in {location} for {num_people} people, for {dining_time}:
+Here are my top {len(restaurants)} {cuisine} restaurant recommendations in {location} for {num_people} people {date_str} at {time_str}:
 
 {chr(10).join(restaurant_list)}
 
@@ -227,4 +249,6 @@ Powered by Dining Concierge Chatbot
     
     except Exception as e:
         print(f"Error sending email: {e}")
+        import traceback
+        print(traceback.format_exc())
         raise
