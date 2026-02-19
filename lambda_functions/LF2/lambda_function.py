@@ -194,23 +194,10 @@ def send_email(to_email, restaurants, cuisine, location, num_people, dining_date
         review_count = restaurant.get('ReviewCount', 0)
         phone = restaurant.get('Phone', 'N/A')
         
-        # Create simple, short Google Maps link
-        lat = restaurant.get('Latitude')
-        lon = restaurant.get('Longitude')
-        
-        if lat and lon:
-            # Use coordinates for precise location
-            maps_link = f"https://maps.google.com/?q={lat},{lon}"
-        else:
-            # Fallback to address search
-            maps_query = f"{name} {address} {area}".replace(' ', '+')
-            maps_link = f"https://maps.google.com/?q={maps_query}"
-        
         # Format restaurant entry
         restaurant_info = f"""{i}. {name} {"⭐" * min(5, int(float(rating)))} ({rating}/5, {review_count} reviews)
    📍 {address}, {area}
    📞 {phone}
-   🗺️ Google Maps: {maps_link}
 """
         restaurant_list.append(restaurant_info)
     
