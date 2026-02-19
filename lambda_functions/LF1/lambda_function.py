@@ -69,82 +69,96 @@ def handle_greeting(event, session_id):
 def handle_repeat_search(event, session_id):
     slots = event['sessionState']['intent']['slots']
     invocation_source = event['invocationSource']
+    session_attributes = event['sessionState'].get('sessionAttributes', {})
 
     user_id = get_user_id(session_id)
     last_search = get_user_preferences(user_id)
 
-    # Detect if user wants something different
     input_transcript = event.get('inputTranscript', '').lower()
+    
     different_keywords = ['different', 'new', 'no', 'nope', 'change', 'something else']
-    if any(kw in input_transcript for kw in different_keywords):
-        return close(
-            event, 'Fulfilled',
-            "Sure! Just say 'need dining suggestions' and tell me what you're looking for today."
-        )
+    same_keywords = ['same', 'yes', 'yeah', 'repeat', 'again']
+    
+    wants_different = any(kw in input_transcript for kw in different_keywords)
+    wants_same = any(kw in input_transcript for kw in same_keywords)
+    
+    # Only use the session flag if user didn't explicitly say "same" this turn
+    previously_different = (
+        session_attributes.get('wants_different') == 'true' and not wants_same
+    )
+
+    if wants_different or previously_different:
+        location = get_slot_value(slots, 'Location')
+        
+        if not location:
+            return {
+                'sessionState': {
+                    'dialogAction': {
+                        'type': 'ElicitSlot',
+                        'slotToElicit': 'Location'
+                    },
+                    'intent': {
+                        'name': 'DiningSuggestionsIntent',
+                        'slots': {
+                            'Location': None,
+                            'Cuisine': None,
+                            'DiningDate': None,
+                            'DiningTime': None,
+                            'NumberOfPeople': None,
+                            'Email': None
+                        },
+                        'state': 'InProgress',
+                        'confirmationState': 'None'
+                    },
+                    'sessionAttributes': {**session_attributes, 'wants_different': 'true'}
+                },
+                'messages': [{
+                    'contentType': 'PlainText',
+                    'content': 'Sure! Which area would you like to dine in? (Manhattan, Brooklyn, Queens, Bronx, Staten Island, Jersey City, Hoboken, or Long Island City)'
+                }]
+            }
+        else:
+            return {
+                'sessionState': {
+                    'dialogAction': {
+                        'type': 'ElicitSlot',
+                        'slotToElicit': 'Cuisine'
+                    },
+                    'intent': {
+                        'name': 'DiningSuggestionsIntent',
+                        'slots': {
+                            'Location': create_slot_value(location),
+                            'Cuisine': None,
+                            'DiningDate': None,
+                            'DiningTime': None,
+                            'NumberOfPeople': None,
+                            'Email': None
+                        },
+                        'state': 'InProgress',
+                        'confirmationState': 'None'
+                    },
+                    'sessionAttributes': {**session_attributes, 'wants_different': 'false'}
+                },
+                'messages': [{
+                    'contentType': 'PlainText',
+                    'content': 'What cuisine would you like to try?'
+                }]
+            }
+
+    # Clear the flag for same/repeat path
+    session_attributes = {**session_attributes, 'wants_different': 'false'}
 
     if not last_search:
-        return close(
-            event, 'Fulfilled',
-            "Hi there! I can help you find restaurants in and around NYC. What are you looking for today?"
-        )
+        return close(event, 'Fulfilled',
+            "Hi there! I can help you find restaurants in and around NYC. What are you looking for today?")
 
     if invocation_source == 'DialogCodeHook':
-
-        # Pre-fill all slots from last search
-        location   = get_slot_value(slots, 'Location')   or last_search.get('location')
-        cuisine    = get_slot_value(slots, 'Cuisine')    or last_search.get('cuisine')
-        num_people = get_slot_value(slots, 'NumberOfPeople') or last_search.get('num_people', '2')
-        email      = get_slot_value(slots, 'Email')      or last_search.get('email')
-        dining_date = get_slot_value(slots, 'DiningDate') or 'today'
-        dining_time = get_slot_value(slots, 'DiningTime') or 'tonight'
-
-        if not location or not cuisine or not email:
-            return close(event, 'Failed',
-                "Sorry, I'm missing some required information. Please try again.")
-
-        # *** KEY FIX: Don't delegate — fulfill directly here ***
-        # Save updated preferences
-        save_user_preferences(user_id, {
-            'location':         location,
-            'cuisine':          cuisine,
-            'email':            email,
-            'num_people':       num_people,
-            'last_search_time': datetime.now().isoformat()
-        })
-
-        # Push to SQS
-        message_body = {
-            'location':    location,
-            'cuisine':     cuisine,
-            'dining_date': dining_date,
-            'dining_time': dining_time,
-            'num_people':  num_people,
-            'email':       email,
-            'timestamp':   datetime.now().isoformat()
-        }
-
-        try:
-            sqs.send_message(
-                QueueUrl=SQS_QUEUE_URL,
-                MessageBody=json.dumps(message_body)
-            )
-            print(f"Sent repeat-search message to SQS: {message_body}")
-        except Exception as e:
-            print(f"Error sending to SQS: {e}")
-            return close(event, 'Failed',
-                "Sorry, something went wrong. Please try again.")
-
-        return close(event, 'Fulfilled',
-            f"You're all set! I'll send {cuisine} restaurant suggestions in {location} to {email} shortly. Have a great day!")
-
-    elif invocation_source == 'FulfillmentCodeHook':
-        # This may never be reached due to Lex V2 behavior, but keep as safety net
-        location   = get_slot_value(slots, 'Location')   or last_search.get('location')
-        cuisine    = get_slot_value(slots, 'Cuisine')    or last_search.get('cuisine')
-        dining_date = get_slot_value(slots, 'DiningDate') or 'today'
-        dining_time = get_slot_value(slots, 'DiningTime') or 'tonight'
-        num_people = get_slot_value(slots, 'NumberOfPeople') or last_search.get('num_people', '2')
-        email      = get_slot_value(slots, 'Email')      or last_search.get('email')
+        location    = get_slot_value(slots, 'Location')    or last_search.get('location')
+        cuisine     = get_slot_value(slots, 'Cuisine')     or last_search.get('cuisine')
+        num_people  = get_slot_value(slots, 'NumberOfPeople') or last_search.get('num_people', '2')
+        email       = get_slot_value(slots, 'Email')       or last_search.get('email')
+        dining_date = get_slot_value(slots, 'DiningDate')  or 'today'
+        dining_time = get_slot_value(slots, 'DiningTime')  or 'tonight'
 
         if not location or not cuisine or not email:
             return close(event, 'Failed',
@@ -169,15 +183,11 @@ def handle_repeat_search(event, session_id):
         }
 
         try:
-            sqs.send_message(
-                QueueUrl=SQS_QUEUE_URL,
-                MessageBody=json.dumps(message_body)
-            )
-            print(f"Sent repeat-search message to SQS: {message_body}")
+            sqs.send_message(QueueUrl=SQS_QUEUE_URL, MessageBody=json.dumps(message_body))
+            print(f"Sent repeat-search to SQS: {message_body}")
         except Exception as e:
             print(f"Error sending to SQS: {e}")
-            return close(event, 'Failed',
-                "Sorry, something went wrong. Please try again.")
+            return close(event, 'Failed', "Sorry, something went wrong. Please try again.")
 
         return close(event, 'Fulfilled',
             f"You're all set! I'll send {cuisine} restaurant suggestions in {location} to {email} shortly. Have a great day!")
