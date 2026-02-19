@@ -1,14 +1,13 @@
 """
 LF2 - Queue Worker
-Polls SQS for restaurant requests, queries DynamoDB, sends email via SES
+Polls SQS, queries DynamoDB, sends email via SES
 """
 
 import json
 import boto3
 import random
-from decimal import Decimal
-from boto3.dynamodb.conditions import Key
 import os
+from decimal import Decimal
 
 # AWS clients
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
@@ -24,20 +23,13 @@ def lambda_handler(event, context):
     """
     Triggered by CloudWatch Events every minute.
     Polls SQS queue for restaurant requests.
-    
-    Flow:
-    1. Pull message from SQS
-    2. Query DynamoDB for restaurants matching cuisine
-    3. Format email with recommendations
-    4. Send via SES
-    5. Delete message from SQS
     """
     
-    # Pull messages from SQS (up to 10 at a time)
+    # Pull messages from SQS
     response = sqs.receive_message(
         QueueUrl=SQS_QUEUE_URL,
-        MaxNumberOfMessages=10,  # Process up to 10 requests per invocation
-        WaitTimeSeconds=0  # Don't wait if queue is empty
+        MaxNumberOfMessages=10,
+        WaitTimeSeconds=0
     )
     
     messages = response.get('Messages', [])
@@ -48,10 +40,8 @@ def lambda_handler(event, context):
     
     print(f"Processing {len(messages)} messages")
     
-    # Process each message
     for message in messages:
         try:
-            # Parse message body
             body = json.loads(message['Body'])
             
             # Extract user preferences
@@ -63,14 +53,14 @@ def lambda_handler(event, context):
             
             print(f"Request: {cuisine} in {location} for {num_people} people at {dining_time}")
             
-            # Get restaurant recommendations (now with location filtering)
-            restaurants = get_restaurant_recommendations(cuisine, location)
+            # Get restaurant recommendations
+            restaurants = get_restaurant_recommendations(cuisine, location, count=5)
             
             # Send email
             if restaurants and email:
                 send_email(email, restaurants, cuisine, location, num_people, dining_time)
             
-            # Delete message from queue (processed successfully)
+            # Delete message from queue
             sqs.delete_message(
                 QueueUrl=SQS_QUEUE_URL,
                 ReceiptHandle=message['ReceiptHandle']
@@ -80,25 +70,28 @@ def lambda_handler(event, context):
             
         except Exception as e:
             print(f"Error processing message: {e}")
-            # Message stays in queue, will be retried
     
     return {'statusCode': 200, 'body': f'Processed {len(messages)} messages'}
-    
-def get_restaurant_recommendations(cuisine, location, price_range=None, count=5):
+
+
+def get_restaurant_recommendations(cuisine, location, count=5):
     """
-    Query DynamoDB for restaurants with filters
+    Query DynamoDB for restaurants matching cuisine and location
+    Returns top results sorted by rating
     
     Args:
-        cuisine: Cuisine type
-        location: Area/borough
-        price_range: Price filter ($, $$, $$$, $$$$) - optional
+        cuisine: Cuisine type (e.g., 'Japanese')
+        location: Area/borough (e.g., 'Brooklyn')
         count: Number of recommendations (default 5)
+    
+    Returns:
+        List of restaurant dictionaries
     """
     
     table = dynamodb.Table(DYNAMODB_TABLE)
     
     try:
-        # Map location
+        # Map common location names to Area values
         location_mapping = {
             'manhattan': 'Manhattan',
             'brooklyn': 'Brooklyn',
@@ -110,40 +103,43 @@ def get_restaurant_recommendations(cuisine, location, price_range=None, count=5)
             'long island city': 'Long Island City'
         }
         
+        # Normalize location
         area = location_mapping.get(location.lower(), location)
         
-        # Build filter expression
-        if price_range and price_range.lower() != 'any':
-            filter_expr = 'Cuisine = :cuisine AND Area = :area AND PriceRange = :price'
-            expr_values = {
-                ':cuisine': cuisine,
-                ':area': area,
-                ':price': price_range
-            }
-        else:
-            filter_expr = 'Cuisine = :cuisine AND Area = :area'
-            expr_values = {
+        print(f"Searching for {cuisine} restaurants in {area}")
+        
+        # Scan with filter for cuisine and area
+        response = table.scan(
+            FilterExpression='Cuisine = :cuisine AND Area = :area',
+            ExpressionAttributeValues={
                 ':cuisine': cuisine,
                 ':area': area
             }
-        
-        print(f"Searching: {cuisine} in {area}, Price: {price_range or 'Any'}")
-        
-        # Scan with filter
-        response = table.scan(
-            FilterExpression=filter_expr,
-            ExpressionAttributeValues=expr_values
         )
         
         restaurants = response.get('Items', [])
         
+        print(f"Found {len(restaurants)} {cuisine} restaurants in {area}")
+        
+        if not restaurants:
+            # Fallback: try without area filter
+            print(f"No restaurants found in {area}, trying {cuisine} anywhere...")
+            response = table.scan(
+                FilterExpression='Cuisine = :cuisine',
+                ExpressionAttributeValues={':cuisine': cuisine}
+            )
+            restaurants = response.get('Items', [])
+        
+        if not restaurants:
+            return []
+        
         # Sort by rating (descending)
         restaurants.sort(key=lambda x: float(x.get('Rating', 0)), reverse=True)
         
-        # Take top 5 (or count specified)
+        # Take top N restaurants
         selected = restaurants[:min(count, len(restaurants))]
         
-        # Convert Decimal to float
+        # Convert Decimal to float for JSON serialization
         for restaurant in selected:
             if 'Rating' in restaurant:
                 restaurant['Rating'] = float(restaurant['Rating'])
@@ -152,17 +148,18 @@ def get_restaurant_recommendations(cuisine, location, price_range=None, count=5)
             if 'Longitude' in restaurant:
                 restaurant['Longitude'] = float(restaurant['Longitude'])
         
-        print(f"Found {len(restaurants)} total, returning top {len(selected)} by rating")
+        print(f"Returning top {len(selected)} restaurants by rating")
         
         return selected
         
     except Exception as e:
         print(f"Error querying DynamoDB: {e}")
         return []
-    
+
+
 def send_email(to_email, restaurants, cuisine, location, num_people, dining_time):
     """
-    Send restaurant recommendations via SES
+    Send restaurant recommendations via SES with enhanced formatting
     """
     
     # Build restaurant list with full details
@@ -174,17 +171,24 @@ def send_email(to_email, restaurants, cuisine, location, num_people, dining_time
         rating = restaurant.get('Rating', 'N/A')
         review_count = restaurant.get('ReviewCount', 0)
         phone = restaurant.get('Phone', 'N/A')
-        price = restaurant.get('PriceRange', 'N/A')
         
-        # Google Maps link
-        maps_query = f"{name} {address}".replace(' ', '+')
-        maps_link = f"https://www.google.com/maps/search/?api=1&query={maps_query}"
+        # Create simple, short Google Maps link
+        lat = restaurant.get('Latitude')
+        lon = restaurant.get('Longitude')
         
-        restaurant_info = f"""{i}. {name} {"⭐" * int(float(rating))} ({rating}/5, {review_count} reviews)
+        if lat and lon:
+            # Use coordinates for precise location
+            maps_link = f"https://maps.google.com/?q={lat},{lon}"
+        else:
+            # Fallback to address search
+            maps_query = f"{name} {address} {area}".replace(' ', '+')
+            maps_link = f"https://maps.google.com/?q={maps_query}"
+        
+        # Format restaurant entry
+        restaurant_info = f"""{i}. {name} {"⭐" * min(5, int(float(rating)))} ({rating}/5, {review_count} reviews)
    📍 {address}, {area}
-   💰 Price: {price}
    📞 {phone}
-   🗺️ View on Maps: {maps_link}
+   🗺️ Google Maps: {maps_link}
 """
         restaurant_list.append(restaurant_info)
     
@@ -219,13 +223,8 @@ Powered by Dining Concierge Chatbot
                 }
             }
         )
-        print(f"Email sent to {to_email}")
+        print(f"Email sent to {to_email}, MessageId: {response['MessageId']}")
+    
     except Exception as e:
         print(f"Error sending email: {e}")
         raise
-
-# For local testing
-if __name__ == '__main__':
-    # Simulate SQS message
-    test_event = {}
-    lambda_handler(test_event, None)
