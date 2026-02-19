@@ -1,6 +1,7 @@
 """
 LF1 - Enhanced Lex Code Hook with Smart Conversation Memory
 Handles: repeat searches, partial changes, date collection, email pre-fill
+FIXED: Handles optional slots correctly
 """
 
 import json
@@ -65,141 +66,142 @@ def handle_greeting(event, session_id):
     
     return close(event, 'Fulfilled', message)
 
-
 def handle_repeat_search(event, session_id):
-    """
-    Handle when user says "same", "repeat", "yes same", etc.
-    Allows partial modifications: same cuisine different location, etc.
-    """
-    
     slots = event['sessionState']['intent']['slots']
     invocation_source = event['invocationSource']
-    
-    # Get user preferences
+
     user_id = get_user_id(session_id)
     last_search = get_user_preferences(user_id)
-    
+
+    # Detect if user wants something different
+    input_transcript = event.get('inputTranscript', '').lower()
+    different_keywords = ['different', 'new', 'no', 'nope', 'change', 'something else']
+    if any(kw in input_transcript for kw in different_keywords):
+        return close(
+            event, 'Fulfilled',
+            "Sure! Just say 'need dining suggestions' and tell me what you're looking for today."
+        )
+
     if not last_search:
-        return close(event, 'Fulfilled', "I don't have your previous search. Let's start fresh! What would you like?")
-    
-    # DialogCodeHook - Check what user wants to change
+        return close(
+            event, 'Fulfilled',
+            "Hi there! I can help you find restaurants in and around NYC. What are you looking for today?"
+        )
+
     if invocation_source == 'DialogCodeHook':
-        # Get what user has specified
-        location = get_slot_value(slots, 'Location')
-        cuisine = get_slot_value(slots, 'Cuisine')
-        dining_date = get_slot_value(slots, 'DiningDate')
-        dining_time = get_slot_value(slots, 'DiningTime')
-        num_people = get_slot_value(slots, 'NumberOfPeople')
-        use_same_email = get_slot_value(slots, 'UseSameEmail')
-        email = get_slot_value(slots, 'Email')
-        
-        # Pre-fill from last search if not specified
-        if not location:
-            slots['Location'] = create_slot_value(last_search.get('location'))
-        
-        if not cuisine:
-            slots['Cuisine'] = create_slot_value(last_search.get('cuisine'))
-        
-        # If user said use same email or hasn't answered yet
-        if use_same_email and use_same_email.lower() in ['yes', 'y', 'yeah', 'sure']:
-            slots['Email'] = create_slot_value(last_search.get('email'))
-        elif not use_same_email and not email and last_search.get('email'):
-            # Ask if they want to use same email
-            return elicit_slot(
-                event,
-                'UseSameEmail',
-                f"Should I use your previous email ({last_search.get('email')})? (Yes/No)"
-            )
-        
-        # Validate slots
-        validation_result = validate_slots(slots)
-        
-        if not validation_result['isValid']:
-            return elicit_slot(
-                event,
-                validation_result['violatedSlot'],
-                validation_result['message']
-            )
-        
-        return delegate(event)
-    
-    # FulfillmentCodeHook - Send to SQS
-    elif invocation_source == 'FulfillmentCodeHook':
-        location = get_slot_value(slots, 'Location') or last_search.get('location')
-        cuisine = get_slot_value(slots, 'Cuisine') or last_search.get('cuisine')
-        dining_date = get_slot_value(slots, 'DiningDate')
-        dining_time = get_slot_value(slots, 'DiningTime')
-        num_people = get_slot_value(slots, 'NumberOfPeople') or last_search.get('num_people')
-        email = get_slot_value(slots, 'Email') or last_search.get('email')
-        
+
+        # Pre-fill all slots from last search
+        location   = get_slot_value(slots, 'Location')   or last_search.get('location')
+        cuisine    = get_slot_value(slots, 'Cuisine')    or last_search.get('cuisine')
+        num_people = get_slot_value(slots, 'NumberOfPeople') or last_search.get('num_people', '2')
+        email      = get_slot_value(slots, 'Email')      or last_search.get('email')
+        dining_date = get_slot_value(slots, 'DiningDate') or 'today'
+        dining_time = get_slot_value(slots, 'DiningTime') or 'tonight'
+
+        if not location or not cuisine or not email:
+            return close(event, 'Failed',
+                "Sorry, I'm missing some required information. Please try again.")
+
+        # *** KEY FIX: Don't delegate — fulfill directly here ***
         # Save updated preferences
         save_user_preferences(user_id, {
-            'location': location,
-            'cuisine': cuisine,
-            'email': email,
-            'num_people': num_people,
+            'location':         location,
+            'cuisine':          cuisine,
+            'email':            email,
+            'num_people':       num_people,
             'last_search_time': datetime.now().isoformat()
         })
-        
+
         # Push to SQS
         message_body = {
-            'location': location,
-            'cuisine': cuisine,
+            'location':    location,
+            'cuisine':     cuisine,
             'dining_date': dining_date,
             'dining_time': dining_time,
-            'num_people': num_people,
-            'email': email,
-            'timestamp': datetime.now().isoformat()
+            'num_people':  num_people,
+            'email':       email,
+            'timestamp':   datetime.now().isoformat()
         }
-        
+
         try:
             sqs.send_message(
                 QueueUrl=SQS_QUEUE_URL,
                 MessageBody=json.dumps(message_body)
             )
-            print(f"Sent message to SQS: {message_body}")
+            print(f"Sent repeat-search message to SQS: {message_body}")
         except Exception as e:
             print(f"Error sending to SQS: {e}")
-        
-        return close(event, 'Fulfilled', "You're all set. Expect my suggestions shortly! Have a good day.")
+            return close(event, 'Failed',
+                "Sorry, something went wrong. Please try again.")
 
+        return close(event, 'Fulfilled',
+            f"You're all set! I'll send {cuisine} restaurant suggestions in {location} to {email} shortly. Have a great day!")
+
+    elif invocation_source == 'FulfillmentCodeHook':
+        # This may never be reached due to Lex V2 behavior, but keep as safety net
+        location   = get_slot_value(slots, 'Location')   or last_search.get('location')
+        cuisine    = get_slot_value(slots, 'Cuisine')    or last_search.get('cuisine')
+        dining_date = get_slot_value(slots, 'DiningDate') or 'today'
+        dining_time = get_slot_value(slots, 'DiningTime') or 'tonight'
+        num_people = get_slot_value(slots, 'NumberOfPeople') or last_search.get('num_people', '2')
+        email      = get_slot_value(slots, 'Email')      or last_search.get('email')
+
+        if not location or not cuisine or not email:
+            return close(event, 'Failed',
+                "Sorry, I'm missing some required information. Please try again.")
+
+        save_user_preferences(user_id, {
+            'location':         location,
+            'cuisine':          cuisine,
+            'email':            email,
+            'num_people':       num_people,
+            'last_search_time': datetime.now().isoformat()
+        })
+
+        message_body = {
+            'location':    location,
+            'cuisine':     cuisine,
+            'dining_date': dining_date,
+            'dining_time': dining_time,
+            'num_people':  num_people,
+            'email':       email,
+            'timestamp':   datetime.now().isoformat()
+        }
+
+        try:
+            sqs.send_message(
+                QueueUrl=SQS_QUEUE_URL,
+                MessageBody=json.dumps(message_body)
+            )
+            print(f"Sent repeat-search message to SQS: {message_body}")
+        except Exception as e:
+            print(f"Error sending to SQS: {e}")
+            return close(event, 'Failed',
+                "Sorry, something went wrong. Please try again.")
+
+        return close(event, 'Fulfilled',
+            f"You're all set! I'll send {cuisine} restaurant suggestions in {location} to {email} shortly. Have a great day!")
+
+    return close(event, 'Failed', "Something went wrong. Please try again.")
 
 def handle_dining_suggestions(event, invocation_source, session_id):
     """
-    Handle new DiningSuggestionsIntent with date support and email pre-fill
+    Handle new DiningSuggestionsIntent with date support
     """
     
     slots = event['sessionState']['intent']['slots']
     
-    # DialogCodeHook - validate slots and pre-fill email if available
+    # DialogCodeHook - validate slots
     if invocation_source == 'DialogCodeHook':
-        # Get user preferences
-        user_id = get_user_id(session_id)
-        last_search = get_user_preferences(user_id)
-        
-        # Pre-fill email if not provided and we have it
-        email = get_slot_value(slots, 'Email')
-        use_same_email = get_slot_value(slots, 'UseSameEmail')
-        
-        if last_search and not email:
-            if use_same_email and use_same_email.lower() in ['yes', 'y', 'yeah', 'sure']:
-                slots['Email'] = create_slot_value(last_search.get('email'))
-            elif not use_same_email and last_search.get('email'):
-                # Ask if they want to use previous email
-                return elicit_slot(
-                    event,
-                    'UseSameEmail',
-                    f"Should I use your previous email ({last_search.get('email')})? (Yes/No)"
-                )
-        
         # Validate slots
         validation_result = validate_slots(slots)
         
         if not validation_result['isValid']:
-            return elicit_slot(
-                event,
-                validation_result['violatedSlot'],
-                validation_result['message']
+            # Can't use elicit_slot for optional slots
+            return close(
+                event, 
+                'Failed', 
+                validation_result['message'] + " Please try again."
             )
         
         return delegate(event)
@@ -386,26 +388,6 @@ def delegate(event):
             'intent': event['sessionState']['intent'],
             'sessionAttributes': event['sessionState'].get('sessionAttributes', {})
         }
-    }
-
-
-def elicit_slot(event, slot_to_elicit, message):
-    """Ask for a specific slot again"""
-    return {
-        'sessionState': {
-            'dialogAction': {
-                'type': 'ElicitSlot',
-                'slotToElicit': slot_to_elicit
-            },
-            'intent': event['sessionState']['intent'],
-            'sessionAttributes': event['sessionState'].get('sessionAttributes', {})
-        },
-        'messages': [
-            {
-                'contentType': 'PlainText',
-                'content': message
-            }
-        ]
     }
 
 
