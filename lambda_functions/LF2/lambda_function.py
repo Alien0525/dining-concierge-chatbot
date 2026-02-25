@@ -156,63 +156,87 @@ def get_restaurant_recommendations(cuisine, location, count=5):
         return []
 
 
+def na(val, fallback='NA'):
+    """Return value or NA if missing/None/empty."""
+    if val is None or str(val).strip() in ('', 'None', 'N/A', 'null'):
+        return fallback
+    return str(val).strip()
+
+
 def send_email(to_email, restaurants, cuisine, location, num_people, dining_date, dining_time):
     """
-    Send restaurant recommendations via SES with enhanced formatting
+    Send restaurant recommendations via SES.
+    - Address is hyperlinked to Google Maps (no separate Maps line)
+    - Missing fields shown as NA
     """
-    
-    # Format the date and time nicely
+
+    # ── Format time ──────────────────────────────────────────────────────────
     try:
-        # Parse dining_time if it's in HH:MM format
-        if ':' in str(dining_time):
-            hour, minute = dining_time.split(':')
+        ts = str(dining_time)
+        if ts and ':' in ts and 'PM' not in ts.upper() and 'AM' not in ts.upper():
+            hour, minute = ts.split(':')[:2]
             hour = int(hour)
-            if hour >= 12:
-                time_str = f"{hour if hour == 12 else hour-12}:{minute} PM"
-            else:
-                time_str = f"{hour}:{minute} AM"
+            suffix = 'PM' if hour >= 12 else 'AM'
+            hour12 = hour % 12 or 12
+            time_str = f"{hour12}:{minute} {suffix}"
         else:
-            time_str = str(dining_time)
-    except:
-        time_str = str(dining_time)
-    
-    # Format dining date
-    if str(dining_date).lower() == 'today':
-        date_str = 'today'
-    elif str(dining_date).lower() == 'tomorrow':
-        date_str = 'tomorrow'
-    else:
-        date_str = f"on {dining_date}"
-    
-    # Build restaurant list with full details
+            time_str = na(dining_time, 'tonight')
+    except Exception:
+        time_str = na(dining_time, 'tonight')
+
+    # ── Format date ───────────────────────────────────────────────────────────
+    dl = str(dining_date).lower() if dining_date else ''
+    if dl == 'today':    date_str = 'today'
+    elif dl == 'tomorrow': date_str = 'tomorrow'
+    elif dl:             date_str = f"on {dining_date}"
+    else:                date_str = 'today'
+
+    # ── Build restaurant entries ──────────────────────────────────────────────
     restaurant_list = []
-    for i, restaurant in enumerate(restaurants, 1):
-        name = restaurant.get('Name', 'Unknown')
-        address = restaurant.get('Address', 'N/A')
-        area = restaurant.get('Area', location)
-        rating = restaurant.get('Rating', 'N/A')
-        review_count = restaurant.get('ReviewCount', 0)
-        phone = restaurant.get('Phone', 'N/A')
-        
-        # Format restaurant entry
-        restaurant_info = f"""{i}. {name} {"⭐" * min(5, int(float(rating)))} ({rating}/5, {review_count} reviews)
-   📍 {address}, {area}
-   📞 {phone}
-"""
-        restaurant_list.append(restaurant_info)
-    
-    # Format email body
-    email_body = f"""Hello! 
+    for i, r in enumerate(restaurants, 1):
+        name         = na(r.get('Name'))
+        address_raw  = na(r.get('Address'))
+        area         = na(r.get('Area', location))
+        rating       = na(r.get('Rating'))
+        review_count = na(r.get('ReviewCount'), '0')
+        phone        = na(r.get('Phone'))
+        lat          = r.get('Latitude')
+        lon          = r.get('Longitude')
 
-Here are my top {len(restaurants)} {cuisine} restaurant recommendations in {location} for {num_people} people {date_str} at {time_str}:
+        # Full address string
+        full_address = f"{address_raw}, {area}" if address_raw != 'NA' else area
 
-{chr(10).join(restaurant_list)}
+        # Google Maps link — embed directly in address text
+        if lat and lon:
+            try:
+                maps_url = f"https://maps.google.com/?q={float(lat)},{float(lon)}"
+                address_line = f"{full_address} ( {maps_url} )"
+            except Exception:
+                address_line = full_address
+        else:
+            address_line = full_address
 
-Enjoy your meal! 🍽️
+        # Star rating
+        try:
+            stars = '⭐' * min(5, int(float(rating)))
+        except Exception:
+            stars = ''
 
----
-Powered by Dining Concierge Chatbot
-"""
+        entry = (
+            f"{i}. {name} {stars} ({rating}/5, {review_count} reviews)\n"
+            f"   📍 {address_line}\n"
+            f"   📞 {phone}\n"
+        )
+        restaurant_list.append(entry)
+
+    # ── Compose email body ────────────────────────────────────────────────────
+    email_body = (
+        f"Hello!\n\n"
+        f"Here are my top {len(restaurants)} {cuisine} restaurant recommendations "
+        f"in {location} for {num_people} people {date_str} at {time_str}:\n\n"
+        + '\n'.join(restaurant_list) +
+        f"\nEnjoy your meal! 🍽️\n\n---\nPowered by Dining Concierge Chatbot\n"
+    )
     
     # Send via SES
     try:
