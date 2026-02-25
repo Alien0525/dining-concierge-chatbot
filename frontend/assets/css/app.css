@@ -65,15 +65,25 @@ body {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  position: fixed;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  -webkit-overflow-scrolling: touch;
 }
 
 button {
   font-family: inherit;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
 }
 
 textarea {
   font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -314,12 +324,15 @@ textarea {
 .messages-area {
   height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 26px 28px 44px;
   display: flex;
   flex-direction: column;
   gap: 20px;
   scrollbar-width: thin;
   scrollbar-color: var(--border-mid) transparent;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .messages-area::-webkit-scrollbar {
@@ -1027,24 +1040,241 @@ textarea {
 /* ─────────────────────────────────────────────────────────
    RESPONSIVE
 ───────────────────────────────────────────────────────── */
-@media (max-width: 580px) {
+@media (max-width: 768px) {
+  html, body {
+    font-size: 14px; /* Slightly smaller base on mobile */
+  }
+
   .header,
-  .chips-rail,
   .messages-area,
   .input-zone {
     padding-left: 16px;
     padding-right: 16px;
   }
 
-  .msg-content {
-    max-width: 86%;
+  .header {
+    padding-top: 14px;
+    padding-bottom: 12px;
+  }
+
+  .brand-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+  }
+
+  .brand-name {
+    font-size: 18px;
   }
 
   .brand-tagline {
-    display: none;
+    font-size: 8.5px;
+  }
+
+  .online-badge {
+    font-size: 8.5px;
+    padding: 4px 10px;
+  }
+
+  .msg-content {
+    max-width: 82%;
+  }
+
+  .bubble {
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+
+  .msg-input {
+    font-size: 14px;
   }
 
   .footer-hint {
     display: none;
+  }
+
+  .clear-btn {
+    font-size: 9px;
+  }
+
+  /* Quick reply buttons - better mobile touch targets */
+  .quick-replies .qr-btn {
+    padding: 8px 14px;
+    font-size: 12px;
+    min-height: 36px; /* Better touch target */
+  }
+
+  /* Picker adjustments for mobile */
+  .picker-container {
+    padding: 14px;
+  }
+
+  .picker-title {
+    font-size: 9px;
+  }
+
+  /* Date picker mobile optimization */
+  .date-picker-month {
+    font-size: 12px;
+  }
+
+  .date-picker-nav {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+
+  .date-grid-header {
+    font-size: 8px;
+    padding: 4px 0;
+  }
+
+  .date-cell {
+    font-size: 11px;
+    min-height: 36px; /* Better touch target */
+  }
+
+  /* Time picker mobile optimization */
+  .time-display {
+    font-size: 24px;
+    padding: 6px;
+  }
+
+  .time-btn {
+    font-size: 18px;
+    padding: 10px;
+    min-height: 42px; /* Better touch target */
+  }
+
+  .time-control-label {
+    font-size: 8.5px;
+  }
+
+  .time-presets {
+    grid-template-columns: repeat(2, 1fr); /* 2 columns on mobile */
+    gap: 8px;
+  }
+
+  .time-preset-btn {
+    padding: 10px 8px;
+    font-size: 12px;
+    min-height: 40px; /* Better touch target */
+  }
+
+  /* Party picker mobile optimization */
+  .party-picker {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+
+  .party-btn {
+    padding: 10px 6px;
+    min-height: 60px; /* Better touch target */
+  }
+
+  .party-btn-icon {
+    font-size: 16px;
+  }
+
+  .party-btn-label {
+    font-size: 11px;
+  }
+
+  /* Confirm buttons */
+  .picker-confirm-btn {
+    padding: 12px;
+    font-size: 12px;
+    min-height: 44px; /* Better touch target */
+  }
+
+  /* Empty state mobile */
+  .empty-heading {
+    font-size: 22px;
+  }
+
+  .empty-body {
+    font-size: 12px;
+  }
+
+  /* Input zone adjustments */
+  .input-zone {
+    padding-bottom: 16px;
+  }
+
+  .input-box {
+    padding: 10px 10px 10px 16px;
+  }
+
+  .send-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 580px) {
+  .brand-tagline {
+    display: none;
+  }
+
+  .msg-content {
+    max-width: 86%;
+  }
+
+  /* Even more compact on very small screens */
+  .picker-container {
+    padding: 12px;
+  }
+
+  .date-cell {
+    font-size: 10px;
+  }
+
+  .party-picker {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .time-presets {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Landscape mobile orientation */
+@media (max-width: 768px) and (orientation: landscape) {
+  .messages-area {
+    padding-top: 16px;
+    padding-bottom: 24px;
+  }
+
+  .header {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .input-zone {
+    padding-top: 10px;
+    padding-bottom: 12px;
+  }
+}
+
+/* Prevent zoom on input focus (iOS) */
+@media (max-width: 768px) {
+  select, textarea, input {
+    font-size: 16px !important; /* Prevents iOS zoom */
+  }
+  
+  .msg-input {
+    font-size: 16px !important; /* Prevents iOS zoom */
+  }
+}
+
+/* Touch-friendly scrollbar on mobile */
+@media (hover: none) {
+  .messages-area::-webkit-scrollbar {
+    width: 2px;
+  }
+  
+  .messages-area {
+    scrollbar-width: thin;
   }
 }
