@@ -1,25 +1,14 @@
 /* ============================================================
    DINING CONCIERGE — chat.js
-   Handles: session, API calls, message rendering, UI state
 ============================================================ */
 
-/* ----------------------------------------------------------
-   SDK INITIALIZATION
-   apigClient.js defines apigClientFactory but does NOT create
-   the sdk instance — the original project did this inline in
-   index.html. We do it here so chat.js is self-contained.
-   Pass {} to use the API endpoint already set in apigClient.js.
----------------------------------------------------------- */
+/* SDK init — must be global, before the IIFE */
 var sdk = apigClientFactory.newClient({});
 
 (function () {
   'use strict';
 
-  /* ----------------------------------------------------------
-     SESSION ID
-     Persisted in localStorage so Lex keeps conversation state
-     across page refreshes.
-  ---------------------------------------------------------- */
+  /* ── SESSION ─────────────────────────────────────────────── */
   var SESSION_KEY = 'dc_session_id';
 
   function getSessionId() {
@@ -39,50 +28,38 @@ var sdk = apigClientFactory.newClient({});
 
   var sessionId = getSessionId();
 
-  /* ----------------------------------------------------------
-     DOM REFERENCES
-  ---------------------------------------------------------- */
-  var $area   = document.getElementById('messagesArea');
-  var $input  = document.getElementById('msgInput');
-  var $send   = document.getElementById('sendBtn');
-  var $clear  = document.getElementById('clearBtn');
-  var $chips  = document.getElementById('chipsRail');
-
-  /* tracked separately so we can re-assign after clear */
-  var $empty  = document.getElementById('emptyState');
+  /* ── DOM REFS ────────────────────────────────────────────── */
+  var $area  = document.getElementById('messagesArea');
+  var $input = document.getElementById('msgInput');
+  var $send  = document.getElementById('sendBtn');
+  var $clear = document.getElementById('clearBtn');
   var hasMessages = false;
 
-  /* ----------------------------------------------------------
-     AUTO-RESIZE TEXTAREA
-  ---------------------------------------------------------- */
+  /* ── AUTO-RESIZE TEXTAREA ────────────────────────────────── */
   $input.addEventListener('input', function () {
     this.style.height = 'auto';
     this.style.height = Math.min(this.scrollHeight, 130) + 'px';
   });
 
-  /* ----------------------------------------------------------
-     API — calls API Gateway → LF0 → Lex
-  ---------------------------------------------------------- */
+  /* ── API CALL ────────────────────────────────────────────── */
   function callChatbotApi(message) {
     return sdk.chatbotPost(
-      {},                          /* params   */
+      {},
       {
         messages: [{
           type: 'unstructured',
           unstructured: {
-            id: sessionId,         /* Lex session identifier */
+            id: sessionId,
             text: message,
             timestamp: new Date().toISOString()
           }
         }]
       },
-      {}                           /* additionalParams */
+      {}
     );
   }
 
-  /* ----------------------------------------------------------
-     UTILITIES
-  ---------------------------------------------------------- */
+  /* ── UTILITIES ───────────────────────────────────────────── */
   function escapeHtml(str) {
     return String(str)
       .replace(/&/g,  '&amp;')
@@ -93,8 +70,7 @@ var sdk = apigClientFactory.newClient({});
   }
 
   function formatTime(date) {
-    var h  = date.getHours();
-    var m  = date.getMinutes();
+    var h = date.getHours(), m = date.getMinutes();
     var ap = h >= 12 ? 'PM' : 'AM';
     h = h % 12 || 12;
     return h + ':' + (m < 10 ? '0' : '') + m + ' ' + ap;
@@ -104,98 +80,132 @@ var sdk = apigClientFactory.newClient({});
     $area.scrollTop = $area.scrollHeight;
   }
 
-  /* ----------------------------------------------------------
-     EMPTY STATE MANAGEMENT
-  ---------------------------------------------------------- */
+  /* ── EMPTY STATE ─────────────────────────────────────────── */
   function hideEmptyState() {
     if (!hasMessages) {
       hasMessages = true;
-      if ($empty) { $empty.style.display = 'none'; }
+      var el = document.getElementById('emptyState');
+      if (el) el.style.display = 'none';
     }
   }
 
-  function buildEmptyState() {
-    var el = document.createElement('div');
-    el.className = 'empty-state';
-    el.id = 'emptyState';
-    el.innerHTML = [
-      '<div class="empty-glyph">&#10022;</div>',
-      '<div class="empty-ornament">&middot; &middot; &middot; &middot; &middot;</div>',
-      '<div class="empty-heading">Where would you like to dine tonight?</div>',
-      '<div class="empty-body">',
-        'Tell me a cuisine, neighbourhood, or occasion<br>',
-        'and I\'ll find the perfect table',
-      '</div>',
-      '<div class="empty-prompts">',
-        '<button class="empty-btn" data-msg="I need restaurant suggestions in Manhattan">Find a restaurant</button>',
-        '<button class="empty-btn" data-msg="Hello! What can you do?">What can you do?</button>',
-        '<button class="empty-btn" data-msg="Best sushi spots in Manhattan">Sushi in Manhattan</button>',
-      '</div>'
-    ].join('');
-    return el;
+  /* ── CONTEXT-AWARE QUICK REPLY BUTTONS ──────────────────── */
+  /*
+    Detects what Lex just asked and surfaces the right option set.
+    Sending the bare word (e.g. "Japanese", "Brooklyn") is enough
+    because Lex slot-filling accepts plain values.
+  */
+
+  var QR_CUISINES = [
+    { label: '🍣 Japanese',       msg: 'Japanese'       },
+    { label: '🍕 Italian',        msg: 'Italian'        },
+    { label: '🥢 Chinese',        msg: 'Chinese'        },
+    { label: '🌮 Mexican',        msg: 'Mexican'        },
+    { label: '🍛 Indian',         msg: 'Indian'         },
+    { label: '🍜 Thai',           msg: 'Thai'           },
+    { label: '🥩 Korean',         msg: 'Korean'         },
+    { label: '🥐 French',         msg: 'French'         },
+    { label: '🫒 Mediterranean',  msg: 'Mediterranean'  },
+    { label: '🍔 American',       msg: 'American'       },
+    { label: '🍲 Vietnamese',     msg: 'Vietnamese'     },
+    { label: '🥘 Spanish',        msg: 'Spanish'        }
+  ];
+
+  var QR_LOCATIONS = [
+    { label: '🗽 Manhattan',         msg: 'Manhattan'        },
+    { label: '🌉 Brooklyn',          msg: 'Brooklyn'         },
+    { label: '🌆 Queens',            msg: 'Queens'           },
+    { label: '🏙 Bronx',             msg: 'Bronx'            },
+    { label: '🏝 Staten Island',     msg: 'Staten Island'    },
+    { label: '🌇 Jersey City',       msg: 'Jersey City'      },
+    { label: '🚢 Hoboken',           msg: 'Hoboken'          },
+    { label: '🏗 Long Island City',  msg: 'Long Island City' }
+  ];
+
+  var QR_DATE = [
+    { label: '📅 Today',      msg: 'Today'    },
+    { label: '📅 Tomorrow',   msg: 'Tomorrow' },
+    { label: '📅 Saturday',   msg: 'Saturday' },
+    { label: '📅 Sunday',     msg: 'Sunday'   }
+  ];
+
+  var QR_TIME = [
+    { label: '🕕 5:00 PM', msg: '5:00 PM' },
+    { label: '🕖 6:00 PM', msg: '6:00 PM' },
+    { label: '🕖 6:30 PM', msg: '6:30 PM' },
+    { label: '🕖 7:00 PM', msg: '7:00 PM' },
+    { label: '🕗 7:30 PM', msg: '7:30 PM' },
+    { label: '🕗 8:00 PM', msg: '8:00 PM' },
+    { label: '🕗 8:30 PM', msg: '8:30 PM' },
+    { label: '🕘 9:00 PM', msg: '9:00 PM' }
+  ];
+
+  var QR_PARTY = [
+    { label: '👤 1',  msg: '1'  },
+    { label: '👥 2',  msg: '2'  },
+    { label: '👥 3',  msg: '3'  },
+    { label: '👥 4',  msg: '4'  },
+    { label: '👥 5',  msg: '5'  },
+    { label: '👥 6',  msg: '6'  },
+    { label: '👥 8',  msg: '8'  },
+    { label: '👥 10', msg: '10' }
+  ];
+
+  var QR_REPEAT = [
+    { label: '✅ Same as last time',    msg: 'Same'               },
+    { label: '🔄 Something different',  msg: 'Something different' }
+  ];
+
+  /* Detect which set of quick replies to show based on bot text */
+  function detectQuickReplySet(botText) {
+    var t = botText.toLowerCase();
+
+    if (t.includes('same') && t.includes('different') && t.includes('last time')) {
+      return { title: null, items: QR_REPEAT };
+    }
+    if (t.includes('city') || t.includes('area') || t.includes('location') ||
+        t.includes('dine in') || t.includes('looking to dine') || t.includes('where')) {
+      return { title: '📍 Pick a location', items: QR_LOCATIONS };
+    }
+    if (t.includes('cuisine') || t.includes('food') || t.includes('craving') ||
+        t.includes('what kind') || t.includes('type of')) {
+      return { title: '🍽 Pick a cuisine', items: QR_CUISINES };
+    }
+    if (t.includes('what date') || t.includes('which date') || t.includes('what day') ||
+        (t.includes('date') && !t.includes('up to date'))) {
+      return { title: '📅 Pick a date', items: QR_DATE };
+    }
+    if (t.includes('what time') || t.includes('which time') ||
+        (t.includes('time') && !t.includes('next time') && !t.includes('last time'))) {
+      return { title: '🕐 Pick a time', items: QR_TIME };
+    }
+    if (t.includes('party') || t.includes('how many') || t.includes('number of people') ||
+        t.includes('guests') || t.includes('people in your')) {
+      return { title: '👥 Party size', items: QR_PARTY };
+    }
+    return null;
   }
 
-  /* ----------------------------------------------------------
-     RENDER — user message
-  ---------------------------------------------------------- */
-  function addUserMessage(text) {
-    hideEmptyState();
+  function buildQuickReplies(botText) {
+    var result = detectQuickReplySet(botText);
+    if (!result) return '';
 
-    var el = document.createElement('div');
-    el.className = 'msg-row user';
-    el.innerHTML = [
-      '<div class="msg-avatar">&#128100;</div>',
-      '<div class="msg-content">',
-        '<div class="bubble bubble-user">', escapeHtml(text), '</div>',
-        '<div class="msg-time">', formatTime(new Date()), '</div>',
-      '</div>'
-    ].join('');
+    var titleHtml = result.title
+      ? '<div class="qr-title">' + escapeHtml(result.title) + '</div>'
+      : '';
 
-    $area.appendChild(el);
-    scrollBottom();
+    var btns = result.items.map(function (r) {
+      return '<button class="qr-btn" data-msg="' + escapeHtml(r.msg) + '">' +
+               escapeHtml(r.label) + '</button>';
+    }).join('');
+
+    return '<div class="quick-replies">' + titleHtml + btns + '</div>';
   }
 
-  /* ----------------------------------------------------------
-     RENDER — typing indicator
-  ---------------------------------------------------------- */
-  function showTyping() {
-    hideEmptyState();
-
-    var el = document.createElement('div');
-    el.className = 'typing-row';
-    el.id = 'typingRow';
-    el.innerHTML = [
-      '<div class="msg-avatar">&#127869;</div>',
-      '<div>',
-        '<div class="msg-sender">Concierge</div>',
-        '<div class="typing-bubble">',
-          '<div class="td"></div>',
-          '<div class="td"></div>',
-          '<div class="td"></div>',
-        '</div>',
-      '</div>'
-    ].join('');
-
-    $area.appendChild(el);
-    scrollBottom();
-  }
-
-  function removeTyping() {
-    var el = document.getElementById('typingRow');
-    if (el) { el.remove(); }
-  }
-
-  /* ----------------------------------------------------------
-     RENDER — bot message
-     Detects confirmation replies and appends a styled card.
-  ---------------------------------------------------------- */
+  /* ── CONFIRMATION DETECTION ──────────────────────────────── */
   var CONFIRM_PHRASES = [
-    "you're all set",
-    "all set",
-    "expect my suggestions",
-    "will notify",
-    "suggestions shortly",
-    "sent to your email"
+    "you're all set", "all set", "expect my suggestions",
+    "will notify", "suggestions shortly", "sent to your email"
   ];
 
   function isConfirmation(text) {
@@ -213,18 +223,62 @@ var sdk = apigClientFactory.newClient({});
     ].join('');
   }
 
+  /* ── RENDER: USER MESSAGE ────────────────────────────────── */
+  function addUserMessage(text) {
+    hideEmptyState();
+    var el = document.createElement('div');
+    el.className = 'msg-row user';
+    el.innerHTML = [
+      '<div class="msg-avatar">&#128100;</div>',
+      '<div class="msg-content">',
+        '<div class="bubble bubble-user">', escapeHtml(text), '</div>',
+        '<div class="msg-time">', formatTime(new Date()), '</div>',
+      '</div>'
+    ].join('');
+    $area.appendChild(el);
+    scrollBottom();
+  }
+
+  /* ── RENDER: TYPING INDICATOR ────────────────────────────── */
+  function showTyping() {
+    hideEmptyState();
+    var el = document.createElement('div');
+    el.className = 'typing-row';
+    el.id = 'typingRow';
+    el.innerHTML = [
+      '<div class="msg-avatar">&#127869;</div>',
+      '<div>',
+        '<div class="msg-sender">Concierge</div>',
+        '<div class="typing-bubble">',
+          '<div class="td"></div><div class="td"></div><div class="td"></div>',
+        '</div>',
+      '</div>'
+    ].join('');
+    $area.appendChild(el);
+    scrollBottom();
+  }
+
+  function removeTyping() {
+    var el = document.getElementById('typingRow');
+    if (el) el.remove();
+  }
+
+  /* ── RENDER: BOT MESSAGE ─────────────────────────────────── */
   function addBotMessage(text) {
     var el = document.createElement('div');
     el.className = 'msg-row';
 
-    var extras = isConfirmation(text) ? buildConfirmCard() : '';
+    // Don't show quick replies after a confirmation — conversation is done
+    var quickRepliesHtml = isConfirmation(text) ? '' : buildQuickReplies(text);
+    var confirmCardHtml  = isConfirmation(text) ? buildConfirmCard() : '';
 
     el.innerHTML = [
       '<div class="msg-avatar">&#127869;</div>',
       '<div class="msg-content">',
         '<div class="msg-sender">Concierge</div>',
         '<div class="bubble bubble-bot">', escapeHtml(text), '</div>',
-        extras,
+        confirmCardHtml,
+        quickRepliesHtml,
         '<div class="msg-time">', formatTime(new Date()), '</div>',
       '</div>'
     ].join('');
@@ -233,17 +287,13 @@ var sdk = apigClientFactory.newClient({});
     scrollBottom();
   }
 
-  /* ----------------------------------------------------------
-     SEND MESSAGE
-  ---------------------------------------------------------- */
+  /* ── SEND MESSAGE ────────────────────────────────────────── */
   var sending = false;
-
-  /* Minimum ms to show typing indicator (feels natural) */
   var MIN_TYPING_MS = 750;
 
   function sendMessage(overrideText) {
     var text = (overrideText !== undefined ? overrideText : $input.value).trim();
-    if (!text || sending) { return; }
+    if (!text || sending) return;
 
     sending = true;
     $send.disabled = true;
@@ -251,41 +301,24 @@ var sdk = apigClientFactory.newClient({});
     $input.style.height = 'auto';
 
     addUserMessage(text);
-
     var typingStart = Date.now();
-
     setTimeout(showTyping, 120);
 
     callChatbotApi(text)
       .then(function (res) {
-        var elapsed = Date.now() - typingStart;
-        var wait    = Math.max(0, MIN_TYPING_MS - elapsed);
-
+        var wait = Math.max(0, MIN_TYPING_MS - (Date.now() - typingStart));
         setTimeout(function () {
           removeTyping();
 
-          // ── Parse response data ─────────────────────────────────────────
-          // axios uses Content-Type to decide whether to auto-parse JSON.
-          // If the Lambda/API Gateway returns Content-Type: text/plain or
-          // omits it, res.data arrives as a raw string — parse it manually.
           var data = res.data;
-          console.log('[DC] raw res.data type:', typeof data);
-          console.log('[DC] raw res.data:', data);
-
           if (typeof data === 'string') {
-            try {
-              data = JSON.parse(data);
-              console.log('[DC] parsed from string:', data);
-            } catch (e) {
-              console.error('[DC] JSON.parse failed:', e, data);
+            try { data = JSON.parse(data); } catch (e) {
               addBotMessage('Received an unreadable response. Please try again.');
-              sending = false;
-              $send.disabled = false;
+              sending = false; $send.disabled = false;
               return;
             }
           }
 
-          // ── Extract messages ────────────────────────────────────────────
           if (data && data.messages && data.messages.length > 0) {
             data.messages.forEach(function (m) {
               if (m.type === 'unstructured' && m.unstructured && m.unstructured.text) {
@@ -293,7 +326,6 @@ var sdk = apigClientFactory.newClient({});
               }
             });
           } else {
-            console.warn('[DC] Unexpected response shape:', data);
             addBotMessage('Something went wrong. Please try again.');
           }
 
@@ -302,66 +334,49 @@ var sdk = apigClientFactory.newClient({});
         }, wait);
       })
       .catch(function (err) {
-        console.error('[DiningConcierge] API error:', err);
-        console.error('[DiningConcierge] err.response:', err.response);
-        console.error('[DiningConcierge] err.message:', err.message);
-
+        console.error('[DC] API error:', err);
         setTimeout(function () {
           removeTyping();
-          addBotMessage("Oops \u2014 couldn\u2019t connect. Please check your network and try again.");
-          sending = false;
-          $send.disabled = false;
+          addBotMessage("Oops \u2014 couldn\u2019t connect. Please try again.");
+          sending = false; $send.disabled = false;
         }, 400);
       });
   }
 
-  /* ----------------------------------------------------------
-     CLEAR CONVERSATION
-  ---------------------------------------------------------- */
+  /* ── CLEAR CHAT ──────────────────────────────────────────── */
   function clearChat() {
     $area.innerHTML = '';
     hasMessages = false;
-
-    $empty = buildEmptyState();
-    $area.appendChild($empty);
-
-    /* Start a brand-new Lex session */
     sessionId = newSessionId();
+    // Re-show empty state
+    var es = document.createElement('div');
+    es.className = 'empty-state';
+    es.id = 'emptyState';
+    es.innerHTML = [
+      '<div class="empty-glyph">&#10022;</div>',
+      '<div class="empty-ornament">&middot; &middot; &middot; &middot; &middot;</div>',
+      '<div class="empty-heading">Where would you like to dine tonight?</div>',
+      '<div class="empty-body">Tell me a cuisine and location<br>and I\'ll find the perfect table</div>'
+    ].join('');
+    $area.appendChild(es);
   }
 
-  /* ----------------------------------------------------------
-     EVENT LISTENERS
-  ---------------------------------------------------------- */
-  /* Send button */
+  /* ── EVENT LISTENERS ─────────────────────────────────────── */
   $send.addEventListener('click', function () { sendMessage(); });
 
-  /* Enter to send, Shift+Enter for newline */
   $input.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   });
 
-  /* Cuisine chip clicks */
-  $chips.addEventListener('click', function (e) {
-    var chip = e.target.closest('.chip');
-    if (chip && chip.dataset.msg) { sendMessage(chip.dataset.msg); }
-  });
-
-  /* Empty-state prompt buttons */
+  // Quick reply buttons (delegated — they're added dynamically)
   $area.addEventListener('click', function (e) {
-    var btn = e.target.closest('.empty-btn');
+    var btn = e.target.closest('.qr-btn');
     if (btn && btn.dataset.msg) { sendMessage(btn.dataset.msg); }
   });
 
-  /* Clear chat */
   $clear.addEventListener('click', clearChat);
 
-  /* ----------------------------------------------------------
-     INITIAL GREETING
-     Shown after a short delay on first load.
-  ---------------------------------------------------------- */
+  /* ── INITIAL GREETING ────────────────────────────────────── */
   setTimeout(function () {
     addBotMessage(
       "Hi there! How can I help you today?"

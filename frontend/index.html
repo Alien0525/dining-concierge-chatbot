@@ -7,24 +7,17 @@
   <meta name="description" content="Dining Concierge – Your AI restaurant guide for NYC">
   <title>Dining Concierge</title>
 
-  <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400&display=swap"
-    rel="stylesheet"
-  >
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
 
-  <!-- App stylesheet -->
   <link rel="stylesheet" href="./assets/css/app.css">
 </head>
 <body>
 
-  <!-- ── AMBIENT BACKGROUND ────────────────────── -->
   <div class="bg-glow"  aria-hidden="true"></div>
   <div class="bg-grain" aria-hidden="true"></div>
 
-  <!-- ── APP SHELL ─────────────────────────────── -->
   <div class="shell">
 
     <!-- HEADER -->
@@ -36,56 +29,29 @@
           <div class="brand-tagline">New York City · Restaurant Guide</div>
         </div>
       </div>
-
-      <div class="online-badge" role="status" aria-live="polite">
+      <div class="online-badge" role="status">
         <div class="online-dot" aria-hidden="true"></div>
         Online
       </div>
     </header>
 
-    <!-- CUISINE CHIPS RAIL -->
-    <nav class="chips-rail" id="chipsRail" aria-label="Quick cuisine picks">
-      <span class="chips-label" aria-hidden="true">Quick pick →</span>
-      <button class="chip" data-msg="I'm looking for Japanese restaurants">Japanese</button>
-      <button class="chip" data-msg="Show me Italian restaurants">Italian</button>
-      <button class="chip" data-msg="I want Chinese food">Chinese</button>
-      <button class="chip" data-msg="Find me Mexican restaurants">Mexican</button>
-      <button class="chip" data-msg="I'd like Indian food recommendations">Indian</button>
-      <button class="chip" data-msg="Looking for Thai restaurants">Thai</button>
-      <button class="chip" data-msg="Korean food please">Korean</button>
-      <button class="chip" data-msg="I want French cuisine">French</button>
-    </nav>
-
     <!-- MESSAGES -->
     <main class="messages-wrap">
-      <div class="messages-area" id="messagesArea" role="log" aria-live="polite" aria-label="Conversation">
+      <div class="messages-area" id="messagesArea" role="log" aria-live="polite">
 
-        <!-- Empty state (hidden once first message is sent) -->
         <div class="empty-state" id="emptyState">
           <div class="empty-glyph" aria-hidden="true">✦</div>
           <div class="empty-ornament" aria-hidden="true">· · · · ·</div>
-          <h1 class="empty-heading">Where would you like to dine tonight?</h1>
+          <h1 class="empty-heading">Where would you like to dine?</h1>
           <p class="empty-body">
-            Tell me a cuisine, neighbourhood, or occasion<br>
-            and I'll find the perfect table
+            Tell me a cuisine and location<br>and I'll find the perfect table
           </p>
-          <div class="empty-prompts" role="group" aria-label="Suggested questions">
-            <button class="empty-btn" data-msg="I need restaurant suggestions in Manhattan">
-              Find a restaurant
-            </button>
-            <button class="empty-btn" data-msg="Hello! What can you do?">
-              What can you do?
-            </button>
-            <button class="empty-btn" data-msg="Best sushi spots in Manhattan">
-              Sushi in Manhattan
-            </button>
-          </div>
         </div>
 
       </div>
     </main>
 
-    <!-- INPUT AREA -->
+    <!-- INPUT -->
     <footer class="input-zone">
       <div class="input-box">
         <textarea
@@ -95,24 +61,18 @@
           rows="1"
           aria-label="Type your message"
           autocomplete="off"
-          spellcheck="true"
         ></textarea>
-        <button class="send-btn" id="sendBtn" aria-label="Send message" title="Send (Enter)">
-          ↑
-        </button>
+        <button class="send-btn" id="sendBtn" aria-label="Send message" title="Send (Enter)">↑</button>
       </div>
-
       <div class="footer-row">
         <span class="footer-hint">Enter to send &nbsp;·&nbsp; Shift+Enter for new line</span>
-        <button class="clear-btn" id="clearBtn" aria-label="Clear conversation">
-          ✕ &nbsp;Clear chat
-        </button>
+        <button class="clear-btn" id="clearBtn">✕ &nbsp;Clear chat</button>
       </div>
     </footer>
 
-  </div><!-- /.shell -->
+  </div>
 
-  <!-- ── API GATEWAY SDK (order matters) ───────── -->
+  <!-- API Gateway SDK -->
   <script src="./assets/js/sdk/lib/axios/dist/axios.standalone.js"></script>
   <script src="./assets/js/sdk/lib/CryptoJS/rollups/hmac-sha256.js"></script>
   <script src="./assets/js/sdk/lib/CryptoJS/rollups/sha256.js"></script>
@@ -126,7 +86,7 @@
   <script src="./assets/js/sdk/apigClient.js"></script>
   <script src="./assets/js/aws-sdk.min.js"></script>
 
-  <!-- ── APP SCRIPT ────────────────────────────── -->
+  <!-- App -->
   <script src="./assets/js/chat.js"></script>
 
 </body>
