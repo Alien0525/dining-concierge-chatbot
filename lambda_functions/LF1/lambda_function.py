@@ -141,7 +141,7 @@ def handle_repeat_search(event, session_id):
                 },
                 'messages': [{
                     'contentType': 'PlainText',
-                    'content': 'What cuisine would you like to try?'
+                    'content': 'What cuisine would you like to try? (Japanese, Italian, Chinese, Mexican, Indian, Thai, Korean, French, Mediterranean, American, Vietnamese, or Spanish)'
                 }]
             }
 
