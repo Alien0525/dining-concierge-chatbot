@@ -112,14 +112,14 @@ var sdk = apigClientFactory.newClient({});
   ];
 
   var QR_LOCATIONS = [
-    { label: '🗽 Manhattan',         msg: 'Manhattan'        },
-    { label: '🌉 Brooklyn',          msg: 'Brooklyn'         },
-    { label: '🌆 Queens',            msg: 'Queens'           },
-    { label: '🏙 Bronx',             msg: 'Bronx'            },
-    { label: '🏝 Staten Island',     msg: 'Staten Island'    },
-    { label: '🌇 Jersey City',       msg: 'Jersey City'      },
-    { label: '🚢 Hoboken',           msg: 'Hoboken'          },
-    { label: '🏗 Long Island City',  msg: 'Long Island City' }
+    { label: 'Manhattan',         msg: 'Manhattan'        },
+    { label: 'Brooklyn',          msg: 'Brooklyn'         },
+    { label: 'Queens',            msg: 'Queens'           },
+    { label: 'Bronx',             msg: 'Bronx'            },
+    { label: 'Staten Island',     msg: 'Staten Island'    },
+    { label: 'Jersey City',       msg: 'Jersey City'      },
+    { label: 'Hoboken',           msg: 'Hoboken'          },
+    { label: 'Long Island City',  msg: 'Long Island City' }
   ];
 
   var QR_DATE = [
