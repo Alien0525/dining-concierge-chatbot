@@ -204,62 +204,89 @@ textarea {
 }
 
 /* ─────────────────────────────────────────────────────────
-   CHIPS RAIL  (quick-pick cuisine buttons)
+   QUICK REPLY BUTTONS
+   Context-aware pill buttons shown below each bot message.
+   Wrap onto multiple rows for large option sets (cuisines).
 ───────────────────────────────────────────────────────── */
-.chips-rail {
-  flex: 0 0 auto;
-  padding: 10px 28px;
-  border-bottom: 1px solid var(--border);
+.quick-replies {
+  margin-top: 10px;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  background: rgba(19, 16, 8, 0.45);
-  animation: slideDown var(--dur-slow) var(--ease) 80ms both;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.chips-rail::-webkit-scrollbar {
-  display: none;
-}
-
-.chips-label {
-  flex-shrink: 0;
+.qr-title {
   font-size: 9px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--text-faint);
-  white-space: nowrap;
-  margin-right: 2px;
+  color: var(--gold);
+  opacity: 0.7;
+  margin-bottom: 2px;
 }
 
-.chip {
-  flex-shrink: 0;
+/* The pill buttons scroll horizontally on mobile,
+   wrap on desktop */
+.quick-replies .qr-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* We don't use .qr-row in markup — pills are direct children
+   so we target them directly */
+.quick-replies .qr-btn {
   padding: 5px 12px;
   border: 1px solid var(--border-mid);
   border-radius: 20px;
   background: transparent;
   color: var(--text-dim);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
   transition:
     border-color var(--dur-base) var(--ease),
     color        var(--dur-base) var(--ease),
     background   var(--dur-base) var(--ease),
     transform    var(--dur-fast) var(--ease);
-  white-space: nowrap;
+  animation: fadeIn 0.25s ease both;
 }
 
-.chip:hover {
-  border-color: var(--gold);
+/* Stagger the pill animations */
+.quick-replies .qr-btn:nth-child(1)  { animation-delay: 0.03s; }
+.quick-replies .qr-btn:nth-child(2)  { animation-delay: 0.06s; }
+.quick-replies .qr-btn:nth-child(3)  { animation-delay: 0.09s; }
+.quick-replies .qr-btn:nth-child(4)  { animation-delay: 0.12s; }
+.quick-replies .qr-btn:nth-child(5)  { animation-delay: 0.15s; }
+.quick-replies .qr-btn:nth-child(6)  { animation-delay: 0.18s; }
+.quick-replies .qr-btn:nth-child(7)  { animation-delay: 0.21s; }
+.quick-replies .qr-btn:nth-child(8)  { animation-delay: 0.24s; }
+.quick-replies .qr-btn:nth-child(9)  { animation-delay: 0.27s; }
+.quick-replies .qr-btn:nth-child(10) { animation-delay: 0.30s; }
+.quick-replies .qr-btn:nth-child(11) { animation-delay: 0.33s; }
+.quick-replies .qr-btn:nth-child(12) { animation-delay: 0.36s; }
+
+.quick-replies .qr-btn:hover {
+  border-color: var(--gold-border);
   color: var(--gold-light);
   background: var(--gold-dim);
   transform: translateY(-1px);
 }
 
-.chip:active {
+.quick-replies .qr-btn:active {
   transform: scale(0.95);
+}
+
+/* Repeat-search buttons (Same / Different) get more prominence */
+.quick-replies .qr-btn[data-msg="Same"] {
+  border-color: rgba(91, 154, 114, 0.4);
+  color: rgba(91, 154, 114, 0.9);
+}
+
+.quick-replies .qr-btn[data-msg="Same"]:hover {
+  background: rgba(91, 154, 114, 0.12);
+  border-color: rgba(91, 154, 114, 0.7);
+  color: #7BC49A;
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -355,33 +382,7 @@ textarea {
   line-height: 2;
 }
 
-.empty-prompts {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 6px;
-}
-
-.empty-btn {
-  padding: 7px 16px;
-  border: 1px solid var(--border-mid);
-  border-radius: 20px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 11.5px;
-  letter-spacing: 0.02em;
-  transition:
-    border-color var(--dur-base) var(--ease),
-    color        var(--dur-base) var(--ease),
-    background   var(--dur-base) var(--ease);
-}
-
-.empty-btn:hover {
-  border-color: var(--gold-border);
-  color: var(--gold-light);
-  background: var(--gold-dim);
-}
+/* (empty-prompts removed — quick replies now appear inline after each bot message) */
 
 /* ─────────────────────────────────────────────────────────
    DAY SEPARATOR
