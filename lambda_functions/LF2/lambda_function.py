@@ -1,7 +1,6 @@
 """
 LF2 - Enhanced Queue Worker
 Polls SQS, queries DynamoDB, sends email via SES
-Now with dining date support
 """
 
 import json
@@ -165,8 +164,8 @@ def na(val, fallback='NA'):
 
 def send_email(to_email, restaurants, cuisine, location, num_people, dining_date, dining_time):
     """
-    Send restaurant recommendations via SES.
-    - Address is hyperlinked to Google Maps (no separate Maps line)
+    Send restaurant recommendations via SES using HTML format.
+    - Address is hyperlinked to Google Maps (embedded in the text)
     - Missing fields shown as NA
     """
 
@@ -191,8 +190,10 @@ def send_email(to_email, restaurants, cuisine, location, num_people, dining_date
     elif dl:             date_str = f"on {dining_date}"
     else:                date_str = 'today'
 
-    # ── Build restaurant entries ──────────────────────────────────────────────
-    restaurant_list = []
+    # ── Build restaurant entries (HTML) ───────────────────────────────────────
+    restaurant_html_list = []
+    restaurant_text_list = []
+    
     for i, r in enumerate(restaurants, 1):
         name         = na(r.get('Name'))
         address_raw  = na(r.get('Address'))
@@ -206,39 +207,92 @@ def send_email(to_email, restaurants, cuisine, location, num_people, dining_date
         # Full address string
         full_address = f"{address_raw}, {area}" if address_raw != 'NA' else area
 
-        # Google Maps link — embed directly in address text
-        if lat and lon:
-            try:
-                maps_url = f"https://maps.google.com/?q={float(lat)},{float(lon)}"
-                address_line = f"{full_address} ( {maps_url} )"
-            except Exception:
-                address_line = full_address
-        else:
-            address_line = full_address
-
         # Star rating
         try:
             stars = '⭐' * min(5, int(float(rating)))
         except Exception:
             stars = ''
 
-        entry = (
+        # HTML version with embedded link
+        if lat and lon:
+            try:
+                maps_url = f"https://maps.google.com/?q={float(lat)},{float(lon)}"
+                address_html = f'<a href="{maps_url}" style="color: #4285F4; text-decoration: none;">{full_address}</a>'
+            except Exception:
+                address_html = full_address
+        else:
+            address_html = full_address
+
+        # HTML entry
+        html_entry = f"""
+        <div style="margin-bottom: 20px; padding: 15px; background-color: #f9f9f9; border-left: 3px solid #C9A96E; border-radius: 4px;">
+            <div style="font-size: 16px; font-weight: bold; color: #333; margin-bottom: 8px;">
+                {i}. {name} {stars}
+            </div>
+            <div style="color: #666; margin-bottom: 4px;">
+                ({rating}/5, {review_count} reviews)
+            </div>
+            <div style="margin-top: 8px; color: #555;">
+                📍 {address_html}
+            </div>
+            <div style="margin-top: 4px; color: #555;">
+                📞 {phone}
+            </div>
+        </div>
+        """
+        restaurant_html_list.append(html_entry)
+
+        # Plain text version (fallback)
+        text_entry = (
             f"{i}. {name} {stars} ({rating}/5, {review_count} reviews)\n"
-            f"   📍 {address_line}\n"
+            f"   📍 {full_address}\n"
             f"   📞 {phone}\n"
         )
-        restaurant_list.append(entry)
+        restaurant_text_list.append(text_entry)
 
-    # ── Compose email body ────────────────────────────────────────────────────
-    email_body = (
+    # ── Compose HTML email body ───────────────────────────────────────────────
+    html_body = f"""
+    <html>
+    <head>
+        <meta charset="UTF-8">
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background-color: #131008; color: #EDE5D0; padding: 20px; border-radius: 8px 8px 0 0;">
+            <h1 style="margin: 0; font-size: 24px; color: #C9A96E;">🍽️ Your Restaurant Recommendations</h1>
+        </div>
+        
+        <div style="background-color: #ffffff; padding: 20px; border-radius: 0 0 8px 8px;">
+            <p style="font-size: 16px; color: #333;">Hello!</p>
+            
+            <p style="font-size: 16px; color: #333;">
+                Here are my top {len(restaurants)} <strong>{cuisine}</strong> restaurant recommendations 
+                in <strong>{location}</strong> for <strong>{num_people} people</strong> {date_str} at <strong>{time_str}</strong>:
+            </p>
+            
+            {''.join(restaurant_html_list)}
+            
+            <p style="margin-top: 30px; font-size: 16px; color: #333;">
+                Enjoy your meal! 🍽️
+            </p>
+            
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 12px; color: #999;">
+                Powered by Dining Concierge Chatbot
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    # ── Plain text fallback ───────────────────────────────────────────────────
+    text_body = (
         f"Hello!\n\n"
         f"Here are my top {len(restaurants)} {cuisine} restaurant recommendations "
         f"in {location} for {num_people} people {date_str} at {time_str}:\n\n"
-        + '\n'.join(restaurant_list) +
+        + '\n'.join(restaurant_text_list) +
         f"\nEnjoy your meal! 🍽️\n\n---\nPowered by Dining Concierge Chatbot\n"
     )
     
-    # Send via SES
+    # Send via SES with both HTML and Text
     try:
         response = ses.send_email(
             Source=FROM_EMAIL,
@@ -249,8 +303,12 @@ def send_email(to_email, restaurants, cuisine, location, num_people, dining_date
                     'Charset': 'UTF-8'
                 },
                 'Body': {
+                    'Html': {
+                        'Data': html_body,
+                        'Charset': 'UTF-8'
+                    },
                     'Text': {
-                        'Data': email_body,
+                        'Data': text_body,
                         'Charset': 'UTF-8'
                     }
                 }
