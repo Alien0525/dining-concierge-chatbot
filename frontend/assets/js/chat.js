@@ -153,7 +153,7 @@ var sdk = apigClientFactory.newClient({});
 
   var QR_REPEAT = [
     { label: '✅ Same as last time',    msg: 'Same'               },
-    { label: '🔄 Something different',  msg: 'Something different' }
+    { label: '🔄 Different',  msg: 'Different' }
   ];
 
   /* Detect which set of quick replies to show based on bot text */

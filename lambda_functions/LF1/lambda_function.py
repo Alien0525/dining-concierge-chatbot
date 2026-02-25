@@ -95,8 +95,6 @@ def elicit_dining_location(event, session_attrs):
             'content': (
                 'Sure! Let\'s find something new. '
                 'Which area would you like to dine in? '
-                '(Manhattan, Brooklyn, Queens, Bronx, Staten Island, '
-                'Jersey City, Hoboken, or Long Island City)'
             )
         }]
     }
@@ -148,8 +146,6 @@ def handle_repeat_search(event, session_id):
                 'content': (
                     'Sure! Let\'s find something new. '
                     'Which area would you like to dine in? '
-                    '(Manhattan, Brooklyn, Queens, Bronx, Staten Island, '
-                    'Jersey City, Hoboken, or Long Island City)'
                 )
             }]
         }
