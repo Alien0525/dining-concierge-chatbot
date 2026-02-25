@@ -62,7 +62,7 @@ def handle_greeting(event, session_id):
         message = f"Welcome back! Last time you searched for {cuisine} food in {location}. Would you like the same, or something different today?"
     else:
         # First-time greeting
-        message = "Hi there! I can help you find restaurants in and around NYC. What are you looking for today?"
+        message = "Hi there! How can I help you today?"
     
     return close(event, 'Fulfilled', message)
 
@@ -150,7 +150,7 @@ def handle_repeat_search(event, session_id):
 
     if not last_search:
         return close(event, 'Fulfilled',
-            "Hi there! I can help you find restaurants in and around NYC. What are you looking for today?")
+            "Hi there! How can I help you today?")
 
     if invocation_source == 'DialogCodeHook':
         location    = get_slot_value(slots, 'Location')    or last_search.get('location')
