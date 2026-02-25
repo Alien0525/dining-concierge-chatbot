@@ -60,7 +60,7 @@ body {
   height: 100%;
   background: var(--bg);
   font-family: 'DM Mono', monospace;
-  font-size: 14px;
+  font-size: 15px; /* Increased from 14px */
   color: var(--text);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -656,24 +656,26 @@ textarea {
 }
 
 .footer-hint {
-  font-size: 9px;
+  font-size: 9.5px; /* Increased from 9px */
   letter-spacing: 0.07em;
-  color: var(--text-faint);
+  color: var(--text-dim); /* Changed from --text-faint to --text-dim for more brightness */
+  font-weight: 400;
 }
 
 .clear-btn {
   background: none;
   border: none;
-  font-size: 9px;
+  font-size: 9.5px; /* Increased from 9px */
   letter-spacing: 0.10em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--text-dim); /* Changed from --text-faint for more brightness */
   padding: 0;
   transition: color var(--dur-base) var(--ease);
+  font-weight: 400;
 }
 
 .clear-btn:hover {
-  color: var(--text-dim);
+  color: var(--text);
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -718,6 +720,308 @@ textarea {
   0%   { transform: scale(1);    opacity: 0.55; }
   70%  { transform: scale(1.38); opacity: 0;    }
   100% { transform: scale(1.38); opacity: 0;    }
+}
+
+/* ─────────────────────────────────────────────────────────
+   INTERACTIVE PICKERS (Date, Time, Party Size)
+───────────────────────────────────────────────────────── */
+.picker-container {
+  margin-top: 10px;
+  padding: 16px;
+  border: 1px solid var(--gold-border);
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    rgba(201, 169, 110, 0.08) 0%,
+    rgba(201, 169, 110, 0.02) 100%
+  );
+  animation: fadeIn 0.3s ease both;
+}
+
+.picker-title {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+
+/* Date Picker Calendar */
+.date-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.date-picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.date-picker-month {
+  font-size: 13px;
+  color: var(--gold-light);
+  font-weight: 500;
+}
+
+.date-picker-nav {
+  background: none;
+  border: 1px solid var(--border-mid);
+  border-radius: 6px;
+  color: var(--text-dim);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: all var(--dur-base) var(--ease);
+}
+
+.date-picker-nav:hover {
+  border-color: var(--gold-border);
+  color: var(--gold-light);
+  background: var(--gold-dim);
+}
+
+.date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.date-grid-header {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  text-align: center;
+  padding: 6px 0;
+}
+
+.date-cell {
+  aspect-ratio: 1;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--dur-fast) var(--ease);
+  cursor: pointer;
+}
+
+.date-cell:hover:not(.date-cell-disabled):not(.date-cell-empty) {
+  border-color: var(--gold-border);
+  background: var(--gold-dim);
+  color: var(--gold-light);
+  transform: scale(1.05);
+}
+
+.date-cell.date-cell-today {
+  border-color: var(--gold-border);
+  color: var(--gold);
+}
+
+.date-cell.date-cell-selected {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.date-cell.date-cell-disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.date-cell.date-cell-empty {
+  border: none;
+  cursor: default;
+}
+
+/* Time Picker Clock */
+.time-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.time-display {
+  text-align: center;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--gold-light);
+  font-family: 'DM Mono', monospace;
+  letter-spacing: 0.05em;
+  padding: 8px;
+}
+
+.time-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.time-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.time-control-label {
+  font-size: 9px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.time-control-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.time-btn {
+  background: var(--card);
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  color: var(--text-dim);
+  font-size: 20px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--dur-base) var(--ease);
+  cursor: pointer;
+}
+
+.time-btn:hover {
+  border-color: var(--gold-border);
+  background: var(--gold-dim);
+  color: var(--gold-light);
+  transform: scale(1.05);
+}
+
+.time-btn:active {
+  transform: scale(0.95);
+}
+
+.time-presets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.time-preset-btn {
+  padding: 8px 4px;
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  transition: all var(--dur-base) var(--ease);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.time-preset-btn:hover {
+  border-color: var(--gold-border);
+  background: var(--gold-dim);
+  color: var(--gold-light);
+}
+
+.time-preset-btn.active {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+/* Party Size Dropdown */
+.party-picker {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.party-btn {
+  padding: 12px 8px;
+  border: 1px solid var(--border-mid);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition: all var(--dur-base) var(--ease);
+  cursor: pointer;
+}
+
+.party-btn-icon {
+  font-size: 18px;
+}
+
+.party-btn-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.party-btn:hover {
+  border-color: var(--gold-border);
+  background: var(--gold-dim);
+  color: var(--gold-light);
+  transform: translateY(-2px);
+}
+
+.party-btn.active {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.party-btn:active {
+  transform: scale(0.95);
+}
+
+.picker-confirm-btn {
+  margin-top: 12px;
+  width: 100%;
+  padding: 10px;
+  background: var(--gold);
+  border: none;
+  border-radius: 10px;
+  color: var(--bg);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all var(--dur-base) var(--ease);
+}
+
+.picker-confirm-btn:hover {
+  background: var(--gold-light);
+  transform: scale(1.02);
+}
+
+.picker-confirm-btn:active {
+  transform: scale(0.98);
+}
+
+.picker-confirm-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
 }
 
 /* ─────────────────────────────────────────────────────────
