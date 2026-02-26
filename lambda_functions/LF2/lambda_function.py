@@ -60,6 +60,7 @@ def lambda_handler(event, context):
     print(f"Processing {len(messages)} messages")
 
     for message in messages:
+        receipt_handle = message['ReceiptHandle']
         try:
             body = json.loads(message['Body'])
 
@@ -75,18 +76,38 @@ def lambda_handler(event, context):
             restaurants = get_restaurant_recommendations(cuisine, location, count=5)
 
             if restaurants and email:
-                send_email(email, restaurants, cuisine, location,
-                           num_people, dining_date, dining_time)
+                try:
+                    send_email(email, restaurants, cuisine, location,
+                               num_people, dining_date, dining_time)
+                    print(f"Successfully processed request for {email}")
+                except Exception as email_error:
+                    # Log email error but don't fail the entire message processing
+                    print(f"Failed to send email to {email}: {email_error}")
+                    # Check if it's a verification error
+                    if 'not verified' in str(email_error).lower():
+                        print(f"Email {email} is not verified in SES. Skipping and removing from queue.")
+                    else:
+                        print(f"Other email error occurred. Removing from queue to prevent retry.")
 
+            # Always delete message from queue to prevent reprocessing
             sqs.delete_message(
                 QueueUrl=SQS_QUEUE_URL,
-                ReceiptHandle=message['ReceiptHandle']
+                ReceiptHandle=receipt_handle
             )
-            print(f"Successfully processed request for {email}")
 
         except Exception as e:
             print(f"Error processing message: {e}")
             print(traceback.format_exc())
+            
+            # Delete message even on error to prevent infinite retries
+            try:
+                sqs.delete_message(
+                    QueueUrl=SQS_QUEUE_URL,
+                    ReceiptHandle=receipt_handle
+                )
+                print("Message deleted from queue despite error")
+            except Exception as delete_error:
+                print(f"Failed to delete message: {delete_error}")
 
     return {'statusCode': 200, 'body': f'Processed {len(messages)} messages'}
 
@@ -200,7 +221,7 @@ def fetch_from_dynamodb_by_ids(restaurant_ids):
     if not restaurant_ids:
         return []
 
-    keys = [{'RestaurantId': {'S': str(rid)}} for rid in restaurant_ids]
+    keys = [{'BusinessID': {'S': str(rid)}} for rid in restaurant_ids]
 
     try:
         response  = dynamodb_client.batch_get_item(
