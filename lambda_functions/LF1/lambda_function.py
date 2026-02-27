@@ -4,9 +4,10 @@ LF1 - Lex Code Hook with Conversation Memory
 
 import json
 import boto3
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import os
 import hashlib
+import re
 
 sqs      = boto3.client('sqs')
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
@@ -53,9 +54,7 @@ def handle_greeting(event, session_id):
             f"Welcome back! Last time you searched for {cuisine} food in {location}. "
             f"Would you like the same, or something different today?"
         )
-        # Flag so RepeatLastSearchIntent knows we explicitly asked this question.
-        # Without this, words like "ok" or "no" typed anywhere in the conversation
-        # could accidentally misroute to RepeatLastSearchIntent.
+        # Set asked_repeat so RepeatLastSearchIntent knows we explicitly asked.
         new_attrs = {**session_attrs, 'asked_repeat': 'true'}
         return {
             'sessionState': {
@@ -70,8 +69,7 @@ def handle_greeting(event, session_id):
             'messages': [{'contentType': 'PlainText', 'content': message}]
         }
     else:
-        message = "Hi there! How can I help you today?"
-        return close(event, 'Fulfilled', message)
+        return close(event, 'Fulfilled', "Hi there! How can I help you today?")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -113,26 +111,25 @@ def handle_repeat_search(event, session_id):
     user_id     = get_user_id(session_id)
     last_search = get_user_preferences(user_id)
 
-    # asked_repeat is set True only when handle_greeting explicitly asked the
-    # same-or-different question. Without this guard, ambiguous words typed
-    # during DiningSuggestionsIntent (like "ok", "no") would misroute here,
-    # losing the active slot context.
+    # CRITICAL: Only process same/different if we actually asked the question.
+    # asked_repeat is set by handle_greeting when it surfaces the same/different prompt.
+    # If it's not set, this is a spurious Lex routing (e.g. "ok" during email slot)
+    # — redirect back into DiningSuggestionsIntent from scratch.
     asked_repeat = session_attrs.get('asked_repeat') == 'true'
 
-    if asked_repeat:
-        different_kw = ['different', 'new', 'no', 'nope', 'change', 'something else',
-                        'something different', 'other']
-        same_kw      = ['same', 'yes', 'yeah', 'yep', 'sure', 'repeat', 'again', 'ok', 'okay']
-    else:
-        # Stricter — only unambiguous phrases when we haven't asked the question
-        different_kw = ['different', 'something different', 'something else', 'something new']
-        same_kw      = ['same', 'same as last time', 'repeat', 'again']
+    if not asked_repeat:
+        # Lex misrouted here mid-conversation. Send user back to dining flow.
+        return elicit_dining_location(event, session_attrs)
+
+    different_kw = ['different', 'new', 'no', 'nope', 'change', 'something else',
+                    'something different', 'other']
+    same_kw      = ['same', 'yes', 'yeah', 'yep', 'sure', 'repeat', 'again', 'ok', 'okay']
 
     wants_different = any(kw in transcript for kw in different_kw)
     wants_same      = any(kw in transcript for kw in same_kw)
 
     if wants_different:
-        new_attrs = {**session_attrs, 'wants_different': 'true'}
+        new_attrs = {**session_attrs, 'wants_different': 'true', 'asked_repeat': 'false'}
         return {
             'sessionState': {
                 'dialogAction': {
@@ -207,14 +204,12 @@ def handle_dining_suggestions(event, invocation_source, session_id):
 
     if session_attrs.get('wants_different') == 'true':
         session_attrs = {**session_attrs, 'wants_different': 'false'}
-    # Clear asked_repeat once we're inside the dining flow
+    # Clear asked_repeat now that we are inside the dining flow
     session_attrs = {**session_attrs, 'asked_repeat': 'false'}
 
     if invocation_source == 'DialogCodeHook':
         v = validate_slots(slots)
         if not v['isValid']:
-            # ── KEY FIX: ElicitSlot re-asks the specific failing slot
-            #    instead of Close which was killing the intent entirely
             return elicit_slot(event, v['slot'], v['message'], session_attrs)
 
         return {
@@ -263,7 +258,6 @@ def handle_dining_suggestions(event, invocation_source, session_id):
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  VALIDATION
-#  Each failed check now returns 'slot' — the name of the slot to re-elicit.
 # ─────────────────────────────────────────────────────────────────────────────
 def validate_slots(slots):
     location    = get_slot_value(slots, 'Location')
@@ -273,6 +267,11 @@ def validate_slots(slots):
     num_people  = get_slot_value(slots, 'NumberOfPeople')
     email       = get_slot_value(slots, 'Email')
 
+    # For date validation we also need the raw original value the user typed,
+    # because Lex resolves "-1" to a real ISO date before we see it.
+    dining_date_raw = get_slot_original(slots, 'DiningDate')
+    dining_time_raw = get_slot_original(slots, 'DiningTime')
+
     valid_locs = ['manhattan', 'brooklyn', 'queens', 'bronx', 'staten island',
                   'jersey city', 'hoboken', 'long island city']
     valid_cuis = ['japanese', 'italian', 'chinese', 'mexican', 'indian', 'thai', 'korean',
@@ -281,8 +280,7 @@ def validate_slots(slots):
     # ── Location ──────────────────────────────────────────────────────────────
     if location and not any(v in location.lower() for v in valid_locs):
         return {
-            'isValid': False,
-            'slot': 'Location',
+            'isValid': False, 'slot': 'Location',
             'message': (
                 'I only have suggestions for Manhattan, Brooklyn, Queens, Bronx, '
                 'Staten Island, Jersey City, Hoboken, or Long Island City. '
@@ -293,8 +291,7 @@ def validate_slots(slots):
     # ── Cuisine ───────────────────────────────────────────────────────────────
     if cuisine and cuisine.lower() not in valid_cuis:
         return {
-            'isValid': False,
-            'slot': 'Cuisine',
+            'isValid': False, 'slot': 'Cuisine',
             'message': (
                 f"I don't have suggestions for {cuisine}. "
                 f"Please choose from: Japanese, Italian, Chinese, Mexican, Indian, "
@@ -302,31 +299,41 @@ def validate_slots(slots):
             )
         }
 
-    # ── Date: reject past dates ───────────────────────────────────────────────
+    # ── Date ──────────────────────────────────────────────────────────────────
     if dining_date:
+        # IMPORTANT: Check the raw typed value first.
+        # Lex resolves garbage like "-1" into a real ISO date offset from today.
+        # We reject any raw value that looks like a bare number or is clearly
+        # not a date phrase.
+        if dining_date_raw and is_clearly_not_a_date(dining_date_raw):
+            return {
+                'isValid': False, 'slot': 'DiningDate',
+                'message': "That doesn't look like a valid date. Please enter today, tomorrow, or a specific date."
+            }
+
         parsed_date = parse_date(dining_date)
         if parsed_date is None:
             return {
-                'isValid': False,
-                'slot': 'DiningDate',
+                'isValid': False, 'slot': 'DiningDate',
                 'message': "I didn't catch that date. Please enter a valid date, like today, tomorrow, or a specific date."
             }
         if parsed_date < date.today():
             return {
-                'isValid': False,
-                'slot': 'DiningDate',
-                'message': (
-                    f"It looks like {dining_date} is in the past. "
-                    f"Please enter today's date or a future date."
-                )
+                'isValid': False, 'slot': 'DiningDate',
+                'message': f"It looks like that date is in the past. Please enter today's date or a future date."
             }
 
-    # ── Time: reject nonsense values like "32" ────────────────────────────────
+    # ── Time ──────────────────────────────────────────────────────────────────
     if dining_time:
+        # Check raw value for obvious garbage before trusting Lex's interpretation
+        if dining_time_raw and is_clearly_not_a_time(dining_time_raw):
+            return {
+                'isValid': False, 'slot': 'DiningTime',
+                'message': "That doesn't look like a valid time. Please enter a time like 7pm or 19:30."
+            }
         if not is_valid_time(dining_time):
             return {
-                'isValid': False,
-                'slot': 'DiningTime',
+                'isValid': False, 'slot': 'DiningTime',
                 'message': "That doesn't look like a valid time. Please enter a time like 7pm or 19:30."
             }
 
@@ -336,22 +343,19 @@ def validate_slots(slots):
             n = int(float(num_people))
             if not (1 <= n <= 20):
                 return {
-                    'isValid': False,
-                    'slot': 'NumberOfPeople',
+                    'isValid': False, 'slot': 'NumberOfPeople',
                     'message': f"{num_people} is out of range. Please enter a number between 1 and 20."
                 }
         except (ValueError, TypeError):
             return {
-                'isValid': False,
-                'slot': 'NumberOfPeople',
+                'isValid': False, 'slot': 'NumberOfPeople',
                 'message': "Please enter a valid number of people, between 1 and 20."
             }
 
     # ── Email ─────────────────────────────────────────────────────────────────
     if email and ('@' not in email or '.' not in email):
         return {
-            'isValid': False,
-            'slot': 'Email',
+            'isValid': False, 'slot': 'Email',
             'message': "That email address doesn't look right. Please enter a valid email, like name@example.com."
         }
 
@@ -359,29 +363,75 @@ def validate_slots(slots):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  DATE / TIME HELPERS
+#  RAW VALUE GUARDS
+#  These check what the user actually typed, before Lex resolves it.
+#  Lex is too permissive — it resolves "-1" as a relative date, "0" as midnight, etc.
+# ─────────────────────────────────────────────────────────────────────────────
+def is_clearly_not_a_date(raw):
+    """
+    Returns True if the raw typed value is obviously not a date.
+    Catches: bare numbers like -1, 0, 32, 99
+    Allows: "today", "tomorrow", "yesterday", "feb 28", "saturday", "3/1" etc.
+    """
+    if not raw:
+        return False
+    v = str(raw).strip()
+    # A bare integer (possibly negative) is not a date
+    try:
+        int(v)
+        return True  # "-1", "0", "32" — all rejected
+    except ValueError:
+        pass
+    # A bare float is not a date
+    try:
+        float(v)
+        return True
+    except ValueError:
+        pass
+    return False
+
+
+def is_clearly_not_a_time(raw):
+    """
+    Returns True if the raw typed value is obviously not a time.
+    Catches: -1, 0, 32, 99
+    Allows: "7pm", "7:30", "19:00", "7", "8" (plausible spoken hours)
+    """
+    if not raw:
+        return False
+    v = str(raw).strip()
+    # Negative number — never a valid time
+    try:
+        n = int(v)
+        if n < 0:
+            return True   # -1, -5 etc.
+        if n > 23:
+            return True   # 32, 60, 99 etc.
+        return False      # 0-23: possibly valid hour, let is_valid_time decide
+    except ValueError:
+        pass
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DATE / TIME PARSERS
 # ─────────────────────────────────────────────────────────────────────────────
 def parse_date(value):
     """
-    Try to parse the date value Lex provides.
-    Lex resolves dates to ISO format (YYYY-MM-DD) in interpretedValue,
-    but users can also say 'yesterday', 'today', 'tomorrow'.
-    Returns a date object or None if unparseable.
+    Parse the interpretedValue Lex provides after NLU resolution.
+    Returns a date object or None.
     """
     if not value:
         return None
 
     v = str(value).lower().strip()
-
-    # Relative keywords
     today = date.today()
+
     if v == 'today':
         return today
     if v == 'tomorrow':
-        from datetime import timedelta
         return today + timedelta(days=1)
     if v == 'yesterday':
-        from datetime import timedelta
         return today - timedelta(days=1)
 
     # Lex ISO format YYYY-MM-DD
@@ -390,11 +440,10 @@ def parse_date(value):
     except ValueError:
         pass
 
-    # Try common spoken formats
+    # Common spoken formats
     for fmt in ('%B %d', '%b %d', '%m/%d', '%m-%d'):
         try:
-            parsed = datetime.strptime(v, fmt)
-            # Assume current year; if that puts it in the past, use next year
+            parsed    = datetime.strptime(v, fmt)
             candidate = parsed.replace(year=today.year).date()
             if candidate < today:
                 candidate = parsed.replace(year=today.year + 1).date()
@@ -407,22 +456,14 @@ def parse_date(value):
 
 def is_valid_time(value):
     """
-    Validate that the time value is a real time.
-    Lex resolves spoken times (e.g. '7pm', '19:30') to HH:MM in interpretedValue.
-    We also need to catch raw garbage inputs like '32', '-1', '0', '60'.
-
-    Rules:
-      - HH:MM format: hour 0-23, minute 0-59 (Lex standard)
-      - Bare integer: only accept 1-12 (plausible spoken hour like "seven")
-        Reject 0, negatives, and anything > 12 typed as a bare number
-      - 12h text like "7pm" or "7:30pm": accept
+    Validate the interpretedValue Lex provides after NLU resolution.
     """
     if not value:
         return False
 
     v = str(value).strip()
 
-    # HH:MM — Lex-resolved format
+    # HH:MM — Lex standard resolved format
     try:
         parts = v.split(':')
         if len(parts) == 2:
@@ -431,16 +472,14 @@ def is_valid_time(value):
     except (ValueError, AttributeError):
         pass
 
-    # Bare integer — must be 1-12 to be a plausible spoken hour
-    # Rejects: 0, -1, 13-99, 32, 60 etc.
+    # Bare integer — accept 1-12 as a plausible spoken hour, reject 0 and > 12
     try:
         n = int(v)
         return 1 <= n <= 12
     except ValueError:
         pass
 
-    # Text like "7pm", "7:30pm"
-    import re
+    # "7pm", "7:30pm"
     if re.match(r'^\d{1,2}(:\d{2})?\s*(am|pm)$', v.lower()):
         return True
 
@@ -451,10 +490,6 @@ def is_valid_time(value):
 #  RESPONSE BUILDERS
 # ─────────────────────────────────────────────────────────────────────────────
 def elicit_slot(event, slot_to_elicit, message, session_attrs):
-    """
-    Re-ask a specific slot without closing or failing the intent.
-    This keeps the conversation alive inside DiningSuggestionsIntent.
-    """
     return {
         'sessionState': {
             'dialogAction': {
@@ -512,9 +547,17 @@ def save_user_preferences(user_id, prefs):
         print(f"DynamoDB save error: {e}")
 
 def get_slot_value(slots, name):
+    """Returns Lex's interpreted/resolved value — what Lex thinks the user meant."""
     s = slots.get(name)
     if s and s.get('value'):
         v = s['value']
         return (v.get('interpretedValue') or v.get('originalValue') or
                 (v['resolvedValues'][0] if v.get('resolvedValues') else None))
+    return None
+
+def get_slot_original(slots, name):
+    """Returns exactly what the user typed, before Lex interpretation."""
+    s = slots.get(name)
+    if s and s.get('value'):
+        return s['value'].get('originalValue')
     return None
