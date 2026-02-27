@@ -1,10 +1,5 @@
 """
 LF1 - Lex Code Hook with Conversation Memory
-
-Fixes applied:
-  - validate_slots now checks DiningDate (no past dates) and DiningTime (valid hour/minute)
-  - On validation failure, returns ElicitSlot (re-asks the failing slot) instead of Close
-    (which was terminating the intent and falling back to RepeatLastSearchIntent)
 """
 
 import json
