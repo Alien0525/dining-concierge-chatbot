@@ -58,7 +58,7 @@ The frontend sends messages to API Gateway, which invokes **LF0** to relay them 
 
 **Core chatbot flow**
 - Collects location, cuisine, dining date, time, number of people, and email through guided conversation
-- Validates all slot values (supported locations, cuisines, party size range) before fulfillment
+- Validates all slot values (supported locations, cuisines, party size range, dates, times) before fulfillment
 - Pushes validated preferences to SQS and confirms receipt to the user
 
 **Intents implemented**
@@ -80,6 +80,166 @@ The frontend sends messages to API Gateway, which invokes **LF0** to relay them 
 
 ---
 
+## Screenshots
+
+### Frontend — Normal Flow
+
+**Landing page**
+![Landing page](screenshots/frontend/normal-flow/landing-page.png)
+
+**Location selection**
+![Location selection](screenshots/frontend/normal-flow/area.png)
+
+**Cuisine selection**
+![Cuisine selection](screenshots/frontend/normal-flow/cuisine.png)
+
+**Date selection**
+![Date selection](screenshots/frontend/normal-flow/date.png)
+
+**Time selection**
+![Time selection](screenshots/frontend/normal-flow/time.png)
+
+**Headcount**
+![Headcount](screenshots/frontend/normal-flow/headcount.png)
+
+**Email entry**
+![Email entry](screenshots/frontend/normal-flow/email.png)
+
+**Confirmation**
+![Recommendations received 1](screenshots/frontend/normal-flow/recommendations-1.png)
+![Recommendations received 2](screenshots/frontend/normal-flow/recommendations-2.png)
+
+---
+
+### Frontend — Invalid Input Handling
+
+**Invalid area**
+![Invalid area](screenshots/frontend/invalid-prompts/invalid-area.png)
+
+**Invalid cuisine**
+![Invalid cuisine](screenshots/frontend/invalid-prompts/invalid-cuisine.png)
+
+**Invalid date**
+![Invalid date 1](screenshots/frontend/invalid-prompts/invalid-date-1.png)
+![Invalid date 2](screenshots/frontend/invalid-prompts/invalid-date-2.png)
+
+**Invalid time**
+![Invalid time](screenshots/frontend/invalid-prompts/invalid-time-1.png)
+
+**Invalid party size**
+![Invalid party size 1](screenshots/frontend/invalid-prompts/invalid-party-1.png)
+![Invalid party size 2](screenshots/frontend/invalid-prompts/invalid-party-2.png)
+![Invalid party size 3](screenshots/frontend/invalid-prompts/invalid-party-3.png)
+
+**Invalid email**
+![Invalid email](screenshots/frontend/invalid-prompts/invalid-email.png)
+
+**Invalid preference on return visit**
+![Invalid preference return user](screenshots/frontend/invalid-prompts/invalid-preference-return-user.png)
+
+---
+
+### Frontend — Conversation Memory (Extra Credit)
+
+**Return user — greeting with last search recalled**
+![Return user greeting](screenshots/frontend/conversation-memory/return-user.png)
+
+**Choosing same as last time**
+![Same preference](screenshots/frontend/conversation-memory/same-preference.png)
+
+**Choosing something different**
+![Different preference](screenshots/frontend/conversation-memory/different-preference.png)
+
+---
+
+### AWS — Lambda Functions
+
+![Lambda functions](screenshots/lambda-functions/lambda-functions.png)
+
+---
+
+### AWS — Amazon Lex
+
+**All intents**
+![Lex intents](screenshots/lex-intents/lex-intents.png)
+
+**DiningSuggestionsIntent — utterances**
+![Dining suggestions utterances](screenshots/lex-intents/dining-suggestions-intent-utterances.png)
+
+**DiningSuggestionsIntent — slots**
+![Dining suggestions slots](screenshots/lex-intents/dining-suggestions-intent-slots.png)
+
+---
+
+### AWS — API Gateway
+
+**Endpoints**
+![API Gateway endpoints](screenshots/api-gateway/api-gateway-endpoints.png)
+
+**POST /chatbot**
+![Chatbot POST endpoint](screenshots/api-gateway/chatbot-POST-endpoint.png)
+
+---
+
+### AWS — DynamoDB
+
+**Tables**
+![DynamoDB tables](screenshots/dynamodb/dynamodb-tables.png)
+
+**yelp-restaurants table**
+![yelp-restaurants](screenshots/dynamodb/yelp-restaurants-table.png)
+
+**user-preferences table**
+![user-preferences](screenshots/dynamodb/user-preferences-table.png)
+
+---
+
+### AWS — SQS
+
+**Queue**
+![SQS queue](screenshots/sqs/sqs-restaurant-requests.png)
+
+**Monitoring**
+![SQS monitoring](screenshots/sqs/sqs-monitoring.png)
+
+---
+
+### AWS — SES
+
+**Verified identity**
+![SES verified identity](screenshots/ses/ses-verified-identity.png)
+
+---
+
+### AWS — S3
+
+**Bucket**
+![S3 bucket](screenshots/s3/s3-bucket.png)
+
+**Bucket objects**
+![S3 bucket objects](screenshots/s3/s3-bucket-objects.png)
+
+**Assets folder**
+![S3 bucket assets](screenshots/s3/s3-bucket-objects-assets.png)
+
+---
+
+### AWS — CloudWatch Logs
+
+**Log management**
+![CloudWatch log management](screenshots/cloudwatch/cloudwatch-log-management.png)
+
+**LF0 logs**
+![LF0 logs](screenshots/cloudwatch/logs-lf0.png)
+
+**LF1 logs — flow 1**
+![LF1 logs flow 1](screenshots/cloudwatch/logs-lf1-flow-1.png)
+
+**LF1 logs — flow 2**
+![LF1 logs flow 2](screenshots/cloudwatch/logs-lf1-flow-2.png)
+
+---
+
 ## Data
 
 Restaurants were scraped from the Yelp Fusion API across **8 NYC-area locations** and **12 cuisine types**, yielding approximately **4,500 unique restaurant records**.
@@ -96,7 +256,7 @@ Rating, ZipCode, Cuisine, City, State, Area, Phone,
 PriceRange, Categories, insertedAtTimestamp
 ```
 
-OpenSearch stores only `RestaurantId` and `Cuisine` per document, keeping the index lightweight. Full details are always resolved through DynamoDB.
+OpenSearch stores only `RestaurantId`, `Cuisine`, and `Area` per document, keeping the index lightweight. Full details are always resolved through DynamoDB.
 
 ---
 
@@ -177,7 +337,7 @@ Each Lambda function reads its configuration from environment variables set in t
 1. **Scrape data** — run `other-scripts/scrape_expanded.py` with a valid `YELP_API_KEY` in `.env`
 2. **Load DynamoDB** — run `other-scripts/load_dynamodb.py`
 3. **Create OpenSearch domain** — use Dev/Test environment, t3.small.search, 1 AZ, no standby; note the endpoint
-4. **Load OpenSearch** — run `other-scripts/load_opensearch.py`
+4. **Load OpenSearch** — run `other-scripts/load_opensearch.py` (set `OPENSEARCH_ENDPOINT`, `MASTER_USER`, `MASTER_PASS` in `.env`)
 5. **Deploy Lambdas** — run `other-scripts/deploy_lambdas.sh`, set all environment variables
 6. **Configure Lex** — create the bot, intents, and slots; point the code hook to LF1
 7. **Set up API Gateway** — import `swagger.yaml`, enable CORS, link to LF0, generate and download the JS SDK
@@ -186,6 +346,47 @@ Each Lambda function reads its configuration from environment variables set in t
 10. **Verify SES** — verify both the sender address and any recipient addresses in SES sandbox mode
 
 > **Cost note:** OpenSearch is not serverless and will accrue charges while running. Tear down the domain when not actively using.
+
+---
+
+## Recreating OpenSearch After Teardown
+
+If you have torn down the OpenSearch domain and need to recreate it:
+
+**Step 1 — Create domain in AWS Console**
+
+Go to OpenSearch Service → Create domain with these settings:
+
+| Setting | Value |
+|---|---|
+| Creation method | Standard create |
+| Templates | Dev/Test |
+| Deployment option | Domain without standby |
+| Availability zones | 1-AZ |
+| Instance type | `t3.small.search` |
+| Number of nodes | 1 |
+| Fine-grained access control | Enabled — create a master user |
+| Access policy | Only use fine-grained access control |
+
+Wait 10–15 minutes for the domain to reach Active status.
+
+**Step 2 — Update credentials**
+
+Add to your `.env`:
+```
+OPENSEARCH_ENDPOINT=https://your-domain.us-east-1.es.amazonaws.com
+MASTER_USER=your-master-username
+MASTER_PASS=your-master-password
+```
+
+Update LF2's environment variables `OPENSEARCH_ENDPOINT`, `OPENSEARCH_USER`, `OPENSEARCH_PASS` in the Lambda console.
+
+**Step 3 — Re-index**
+```bash
+python other-scripts/load_opensearch.py
+```
+
+The script bulk-loads all ~4,500 restaurants and prints a final count to confirm.
 
 ---
 
