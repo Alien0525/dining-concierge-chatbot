@@ -1,10 +1,15 @@
 """
 LF1 - Lex Code Hook with Conversation Memory
+
+Fixes applied:
+  - validate_slots now checks DiningDate (no past dates) and DiningTime (valid hour/minute)
+  - On validation failure, returns ElicitSlot (re-asks the failing slot) instead of Close
+    (which was terminating the intent and falling back to RepeatLastSearchIntent)
 """
 
 import json
 import boto3
-from datetime import datetime
+from datetime import datetime, date
 import os
 import hashlib
 
@@ -23,8 +28,6 @@ def lambda_handler(event, context):
     session_id        = event['sessionId']
     session_attrs     = event['sessionState'].get('sessionAttributes', {})
 
-    # ── If we flagged "wants_different" in a previous turn,
-    #    force into DiningSuggestionsIntent regardless of what Lex routed ──────
     if session_attrs.get('wants_different') == 'true' and \
        intent_name != 'DiningSuggestionsIntent':
         return elicit_dining_location(event, session_attrs)
@@ -55,19 +58,29 @@ def handle_greeting(event, session_id):
             f"Welcome back! Last time you searched for {cuisine} food in {location}. "
             f"Would you like the same, or something different today?"
         )
+        # Flag so RepeatLastSearchIntent knows we explicitly asked this question.
+        # Without this, words like "ok" or "no" typed anywhere in the conversation
+        # could accidentally misroute to RepeatLastSearchIntent.
+        new_attrs = {**session_attrs, 'asked_repeat': 'true'}
+        return {
+            'sessionState': {
+                'dialogAction': {'type': 'Close'},
+                'intent': {
+                    'name':  event['sessionState']['intent']['name'],
+                    'slots': event['sessionState']['intent'].get('slots', {}),
+                    'state': 'Fulfilled'
+                },
+                'sessionAttributes': new_attrs
+            },
+            'messages': [{'contentType': 'PlainText', 'content': message}]
+        }
     else:
         message = "Hi there! How can I help you today?"
-
-    return close(event, 'Fulfilled', message)
+        return close(event, 'Fulfilled', message)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 def elicit_dining_location(event, session_attrs):
-    """
-    Redirect into DiningSuggestionsIntent by eliciting the Location slot.
-    Called when wants_different=true but Lex routed elsewhere.
-    """
-    # Clear the flag so we don't loop
     new_attrs = {**session_attrs, 'wants_different': 'false'}
     return {
         'sessionState': {
@@ -78,12 +91,12 @@ def elicit_dining_location(event, session_attrs):
             'intent': {
                 'name': 'DiningSuggestionsIntent',
                 'slots': {
-                    'Location':      None,
-                    'Cuisine':       None,
-                    'DiningDate':    None,
-                    'DiningTime':    None,
-                    'NumberOfPeople':None,
-                    'Email':         None
+                    'Location':       None,
+                    'Cuisine':        None,
+                    'DiningDate':     None,
+                    'DiningTime':     None,
+                    'NumberOfPeople': None,
+                    'Email':          None
                 },
                 'state': 'InProgress',
                 'confirmationState': 'None'
@@ -92,33 +105,38 @@ def elicit_dining_location(event, session_attrs):
         },
         'messages': [{
             'contentType': 'PlainText',
-            'content': (
-                'Sure! Let\'s find something new. '
-                'Which area would you like to dine in? '
-            )
+            'content': "Sure! Let's find something new. Which area would you like to dine in?"
         }]
     }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 def handle_repeat_search(event, session_id):
-    slots         = event['sessionState']['intent']['slots']
     session_attrs = event['sessionState'].get('sessionAttributes', {})
     transcript    = event.get('inputTranscript', '').lower().strip()
 
     user_id     = get_user_id(session_id)
     last_search = get_user_preferences(user_id)
 
-    different_kw = ['different', 'new', 'no', 'nope', 'change', 'something else',
-                    'something different', 'other']
-    same_kw      = ['same', 'yes', 'yeah', 'yep', 'sure', 'repeat', 'again', 'ok', 'okay']
+    # asked_repeat is set True only when handle_greeting explicitly asked the
+    # same-or-different question. Without this guard, ambiguous words typed
+    # during DiningSuggestionsIntent (like "ok", "no") would misroute here,
+    # losing the active slot context.
+    asked_repeat = session_attrs.get('asked_repeat') == 'true'
+
+    if asked_repeat:
+        different_kw = ['different', 'new', 'no', 'nope', 'change', 'something else',
+                        'something different', 'other']
+        same_kw      = ['same', 'yes', 'yeah', 'yep', 'sure', 'repeat', 'again', 'ok', 'okay']
+    else:
+        # Stricter — only unambiguous phrases when we haven't asked the question
+        different_kw = ['different', 'something different', 'something else', 'something new']
+        same_kw      = ['same', 'same as last time', 'repeat', 'again']
 
     wants_different = any(kw in transcript for kw in different_kw)
     wants_same      = any(kw in transcript for kw in same_kw)
 
-    # ── Wants something different ─────────────────────────────────────────────
     if wants_different:
-        # Set flag and elicit Location for DiningSuggestionsIntent
         new_attrs = {**session_attrs, 'wants_different': 'true'}
         return {
             'sessionState': {
@@ -129,12 +147,12 @@ def handle_repeat_search(event, session_id):
                 'intent': {
                     'name': 'DiningSuggestionsIntent',
                     'slots': {
-                        'Location':      None,
-                        'Cuisine':       None,
-                        'DiningDate':    None,
-                        'DiningTime':    None,
-                        'NumberOfPeople':None,
-                        'Email':         None
+                        'Location':       None,
+                        'Cuisine':        None,
+                        'DiningDate':     None,
+                        'DiningTime':     None,
+                        'NumberOfPeople': None,
+                        'Email':          None
                     },
                     'state': 'InProgress',
                     'confirmationState': 'None'
@@ -143,20 +161,15 @@ def handle_repeat_search(event, session_id):
             },
             'messages': [{
                 'contentType': 'PlainText',
-                'content': (
-                    'Sure! Let\'s find something new. '
-                    'Which area would you like to dine in? '
-                )
+                'content': "Sure! Let's find something new. Which area would you like to dine in?"
             }]
         }
 
-    # ── No clear signal ───────────────────────────────────────────────────────
     if not wants_same:
         return close(event, 'Fulfilled',
             "Sorry, I didn't catch that. "
             "Would you like the same as last time, or something different?")
 
-    # ── Wants same ────────────────────────────────────────────────────────────
     if not last_search:
         return close(event, 'Fulfilled',
             "I don't have a previous search on file. What are you looking for today?")
@@ -197,15 +210,18 @@ def handle_dining_suggestions(event, invocation_source, session_id):
     slots         = event['sessionState']['intent']['slots']
     session_attrs = event['sessionState'].get('sessionAttributes', {})
 
-    # Clear wants_different flag now that we're properly in DiningSuggestionsIntent
     if session_attrs.get('wants_different') == 'true':
         session_attrs = {**session_attrs, 'wants_different': 'false'}
+    # Clear asked_repeat once we're inside the dining flow
+    session_attrs = {**session_attrs, 'asked_repeat': 'false'}
 
     if invocation_source == 'DialogCodeHook':
         v = validate_slots(slots)
         if not v['isValid']:
-            return close(event, 'Failed', v['message'] + " Please try again.")
-        # Pass updated session attrs through delegate
+            # ── KEY FIX: ElicitSlot re-asks the specific failing slot
+            #    instead of Close which was killing the intent entirely
+            return elicit_slot(event, v['slot'], v['message'], session_attrs)
+
         return {
             'sessionState': {
                 'dialogAction': {'type': 'Delegate'},
@@ -251,66 +267,219 @@ def handle_dining_suggestions(event, invocation_source, session_id):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  VALIDATION
+#  Each failed check now returns 'slot' — the name of the slot to re-elicit.
+# ─────────────────────────────────────────────────────────────────────────────
 def validate_slots(slots):
-    location   = get_slot_value(slots, 'Location')
-    cuisine    = get_slot_value(slots, 'Cuisine')
-    num_people = get_slot_value(slots, 'NumberOfPeople')
-    email      = get_slot_value(slots, 'Email')
+    location    = get_slot_value(slots, 'Location')
+    cuisine     = get_slot_value(slots, 'Cuisine')
+    dining_date = get_slot_value(slots, 'DiningDate')
+    dining_time = get_slot_value(slots, 'DiningTime')
+    num_people  = get_slot_value(slots, 'NumberOfPeople')
+    email       = get_slot_value(slots, 'Email')
 
-    valid_locs = ['manhattan','brooklyn','queens','bronx','staten island',
-                  'jersey city','hoboken','long island city']
-    valid_cuis = ['japanese','italian','chinese','mexican','indian','thai','korean',
-                  'french','mediterranean','american','vietnamese','spanish']
+    valid_locs = ['manhattan', 'brooklyn', 'queens', 'bronx', 'staten island',
+                  'jersey city', 'hoboken', 'long island city']
+    valid_cuis = ['japanese', 'italian', 'chinese', 'mexican', 'indian', 'thai', 'korean',
+                  'french', 'mediterranean', 'american', 'vietnamese', 'spanish']
 
+    # ── Location ──────────────────────────────────────────────────────────────
     if location and not any(v in location.lower() for v in valid_locs):
-        return {'isValid': False, 'message':
-            'I only have suggestions for Manhattan, Brooklyn, Queens, Bronx, '
-            'Staten Island, Jersey City, Hoboken, or Long Island City.'}
+        return {
+            'isValid': False,
+            'slot': 'Location',
+            'message': (
+                'I only have suggestions for Manhattan, Brooklyn, Queens, Bronx, '
+                'Staten Island, Jersey City, Hoboken, or Long Island City. '
+                'Which area would you like?'
+            )
+        }
 
+    # ── Cuisine ───────────────────────────────────────────────────────────────
     if cuisine and cuisine.lower() not in valid_cuis:
-        return {'isValid': False, 'message':
-            f"I don't have suggestions for {cuisine}. Try Japanese, Italian, Chinese, "
-            f"Mexican, Indian, Thai, Korean, French, Mediterranean, American, "
-            f"Vietnamese, or Spanish."}
+        return {
+            'isValid': False,
+            'slot': 'Cuisine',
+            'message': (
+                f"I don't have suggestions for {cuisine}. "
+                f"Please choose from: Japanese, Italian, Chinese, Mexican, Indian, "
+                f"Thai, Korean, French, Mediterranean, American, Vietnamese, or Spanish."
+            )
+        }
 
+    # ── Date: reject past dates ───────────────────────────────────────────────
+    if dining_date:
+        parsed_date = parse_date(dining_date)
+        if parsed_date is None:
+            return {
+                'isValid': False,
+                'slot': 'DiningDate',
+                'message': "I didn't catch that date. Please enter a valid date, like today, tomorrow, or a specific date."
+            }
+        if parsed_date < date.today():
+            return {
+                'isValid': False,
+                'slot': 'DiningDate',
+                'message': (
+                    f"It looks like {dining_date} is in the past. "
+                    f"Please enter today's date or a future date."
+                )
+            }
+
+    # ── Time: reject nonsense values like "32" ────────────────────────────────
+    if dining_time:
+        if not is_valid_time(dining_time):
+            return {
+                'isValid': False,
+                'slot': 'DiningTime',
+                'message': "That doesn't look like a valid time. Please enter a time like 7pm or 19:30."
+            }
+
+    # ── Number of people ──────────────────────────────────────────────────────
     if num_people:
         try:
-            n = int(num_people)
+            n = int(float(num_people))
             if not (1 <= n <= 20):
-                return {'isValid': False, 'message': 'Please enter a number between 1 and 20.'}
-        except ValueError:
-            return {'isValid': False, 'message': 'Please enter a valid number of people.'}
+                return {
+                    'isValid': False,
+                    'slot': 'NumberOfPeople',
+                    'message': f"{num_people} is out of range. Please enter a number between 1 and 20."
+                }
+        except (ValueError, TypeError):
+            return {
+                'isValid': False,
+                'slot': 'NumberOfPeople',
+                'message': "Please enter a valid number of people, between 1 and 20."
+            }
 
+    # ── Email ─────────────────────────────────────────────────────────────────
     if email and ('@' not in email or '.' not in email):
-        return {'isValid': False, 'message': 'Please enter a valid email address.'}
+        return {
+            'isValid': False,
+            'slot': 'Email',
+            'message': "That email address doesn't look right. Please enter a valid email, like name@example.com."
+        }
 
     return {'isValid': True}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def get_user_id(session_id):
-    return hashlib.md5(session_id.encode()).hexdigest()[:16]
+#  DATE / TIME HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+def parse_date(value):
+    """
+    Try to parse the date value Lex provides.
+    Lex resolves dates to ISO format (YYYY-MM-DD) in interpretedValue,
+    but users can also say 'yesterday', 'today', 'tomorrow'.
+    Returns a date object or None if unparseable.
+    """
+    if not value:
+        return None
 
-def get_user_preferences(user_id):
+    v = str(value).lower().strip()
+
+    # Relative keywords
+    today = date.today()
+    if v == 'today':
+        return today
+    if v == 'tomorrow':
+        from datetime import timedelta
+        return today + timedelta(days=1)
+    if v == 'yesterday':
+        from datetime import timedelta
+        return today - timedelta(days=1)
+
+    # Lex ISO format YYYY-MM-DD
     try:
-        r = dynamodb.Table(USER_PREFS_TABLE).get_item(Key={'UserId': user_id})
-        return r.get('Item')
-    except Exception as e:
-        print(f"DynamoDB get error: {e}"); return None
+        return datetime.strptime(v, '%Y-%m-%d').date()
+    except ValueError:
+        pass
 
-def save_user_preferences(user_id, prefs):
-    try:
-        dynamodb.Table(USER_PREFS_TABLE).put_item(Item={'UserId': user_id, **prefs})
-    except Exception as e:
-        print(f"DynamoDB save error: {e}")
+    # Try common spoken formats
+    for fmt in ('%B %d', '%b %d', '%m/%d', '%m-%d'):
+        try:
+            parsed = datetime.strptime(v, fmt)
+            # Assume current year; if that puts it in the past, use next year
+            candidate = parsed.replace(year=today.year).date()
+            if candidate < today:
+                candidate = parsed.replace(year=today.year + 1).date()
+            return candidate
+        except ValueError:
+            continue
 
-def get_slot_value(slots, name):
-    s = slots.get(name)
-    if s and s.get('value'):
-        v = s['value']
-        return (v.get('interpretedValue') or v.get('originalValue') or
-                (v['resolvedValues'][0] if v.get('resolvedValues') else None))
     return None
+
+
+def is_valid_time(value):
+    """
+    Validate that the time value is a real time.
+    Lex resolves spoken times (e.g. '7pm', '19:30') to HH:MM in interpretedValue.
+    We also need to catch raw garbage inputs like '32', '-1', '0', '60'.
+
+    Rules:
+      - HH:MM format: hour 0-23, minute 0-59 (Lex standard)
+      - Bare integer: only accept 1-12 (plausible spoken hour like "seven")
+        Reject 0, negatives, and anything > 12 typed as a bare number
+      - 12h text like "7pm" or "7:30pm": accept
+    """
+    if not value:
+        return False
+
+    v = str(value).strip()
+
+    # HH:MM — Lex-resolved format
+    try:
+        parts = v.split(':')
+        if len(parts) == 2:
+            h, m = int(parts[0]), int(parts[1])
+            return (0 <= h <= 23) and (0 <= m <= 59)
+    except (ValueError, AttributeError):
+        pass
+
+    # Bare integer — must be 1-12 to be a plausible spoken hour
+    # Rejects: 0, -1, 13-99, 32, 60 etc.
+    try:
+        n = int(v)
+        return 1 <= n <= 12
+    except ValueError:
+        pass
+
+    # Text like "7pm", "7:30pm"
+    import re
+    if re.match(r'^\d{1,2}(:\d{2})?\s*(am|pm)$', v.lower()):
+        return True
+
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  RESPONSE BUILDERS
+# ─────────────────────────────────────────────────────────────────────────────
+def elicit_slot(event, slot_to_elicit, message, session_attrs):
+    """
+    Re-ask a specific slot without closing or failing the intent.
+    This keeps the conversation alive inside DiningSuggestionsIntent.
+    """
+    return {
+        'sessionState': {
+            'dialogAction': {
+                'type': 'ElicitSlot',
+                'slotToElicit': slot_to_elicit
+            },
+            'intent': {
+                'name':  event['sessionState']['intent']['name'],
+                'slots': event['sessionState']['intent'].get('slots', {}),
+                'state': 'InProgress',
+                'confirmationState': 'None'
+            },
+            'sessionAttributes': session_attrs
+        },
+        'messages': [{
+            'contentType': 'PlainText',
+            'content': message
+        }]
+    }
+
 
 def close(event, state, message):
     return {
@@ -325,3 +494,32 @@ def close(event, state, message):
         },
         'messages': [{'contentType': 'PlainText', 'content': message}]
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  DYNAMODB HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+def get_user_id(session_id):
+    return hashlib.md5(session_id.encode()).hexdigest()[:16]
+
+def get_user_preferences(user_id):
+    try:
+        r = dynamodb.Table(USER_PREFS_TABLE).get_item(Key={'UserId': user_id})
+        return r.get('Item')
+    except Exception as e:
+        print(f"DynamoDB get error: {e}")
+        return None
+
+def save_user_preferences(user_id, prefs):
+    try:
+        dynamodb.Table(USER_PREFS_TABLE).put_item(Item={'UserId': user_id, **prefs})
+    except Exception as e:
+        print(f"DynamoDB save error: {e}")
+
+def get_slot_value(slots, name):
+    s = slots.get(name)
+    if s and s.get('value'):
+        v = s['value']
+        return (v.get('interpretedValue') or v.get('originalValue') or
+                (v['resolvedValues'][0] if v.get('resolvedValues') else None))
+    return None
