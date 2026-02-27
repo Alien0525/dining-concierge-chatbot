@@ -751,54 +751,6 @@ textarea {
   animation: fadeIn 0.3s ease both;
 }
 
-/* Compact mode: used when re-asking after a validation error.
-   Prevents the picker widget from rendering larger than the original. */
-.picker-compact {
-  padding: 10px 14px;
-  margin-top: 6px;
-}
-.picker-compact .picker-title {
-  margin-bottom: 8px;
-  font-size: 9px;
-}
-.picker-compact .date-picker-header {
-  padding: 4px 0;
-}
-.picker-compact .date-grid {
-  gap: 2px;
-}
-.picker-compact .date-cell {
-  width: 28px;
-  height: 28px;
-  font-size: 11px;
-}
-.picker-compact .time-display {
-  font-size: 22px;
-  padding: 8px 0;
-}
-.picker-compact .time-presets {
-  gap: 4px;
-}
-.picker-compact .time-preset-btn {
-  padding: 4px 8px;
-  font-size: 11px;
-}
-.picker-compact .party-picker {
-  gap: 6px;
-}
-.picker-compact .party-btn {
-  padding: 8px 10px;
-  min-width: 48px;
-}
-.picker-compact .party-btn-icon {
-  font-size: 14px;
-}
-.picker-compact .picker-confirm-btn {
-  padding: 7px 16px;
-  font-size: 11px;
-  margin-top: 8px;
-}
-
 .picker-title {
   font-size: 10px;
   letter-spacing: 0.12em;

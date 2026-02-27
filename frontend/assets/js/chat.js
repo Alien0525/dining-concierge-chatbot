@@ -163,32 +163,31 @@ var sdk = apigClientFactory.newClient({});
     if (t.includes('same') && t.includes('different') && t.includes('last time')) {
       return { title: null, items: QR_REPEAT, type: 'buttons' };
     }
-    // Location: match normal ask AND validation error re-ask
+    // Match normal ask + validation error re-ask (error contains city names like "manhattan")
     if (t.includes('city') || t.includes('area') || t.includes('location') ||
         t.includes('dine in') || t.includes('looking to dine') || t.includes('where') ||
         t.includes('manhattan') || t.includes('brooklyn') || t.includes('which area')) {
       return { title: '📍 Pick a location', items: QR_LOCATIONS, type: 'buttons' };
     }
-    // Cuisine: match normal ask AND validation error re-ask
-    // Error message contains cuisine names like "Japanese, Italian..." so we detect those too
+    // Match normal ask + validation error re-ask (error contains cuisine names like "japanese")
     if (t.includes('cuisine') || t.includes('food') || t.includes('craving') ||
         t.includes('what kind') || t.includes('type of') ||
         t.includes('japanese') || t.includes('italian') || t.includes('choose from')) {
       return { title: '🍽 Pick a cuisine', items: QR_CUISINES, type: 'buttons' };
     }
-    // Date: match normal ask AND past-date error re-ask
+    // Match normal ask + past-date error re-ask
     if (t.includes('what date') || t.includes('which date') || t.includes('what day') ||
-        t.includes('future date') || t.includes('valid date') ||
+        t.includes('future date') || t.includes('valid date') || t.includes('in the past') ||
         (t.includes('date') && !t.includes('up to date'))) {
       return { title: '📅 Pick a date', items: null, type: 'date-picker' };
     }
-    // Time: match normal ask AND invalid-time error re-ask
-    if (t.includes('what time') || t.includes('which time') || t.includes('valid time') ||
-        t.includes('like 7pm') || t.includes('19:30') ||
+    // Match normal ask + invalid-time error re-ask
+    if (t.includes('what time') || t.includes('which time') ||
+        t.includes('valid time') || t.includes('like 7pm') ||
         (t.includes('time') && !t.includes('next time') && !t.includes('last time'))) {
       return { title: '🕐 Pick a time', items: null, type: 'time-picker' };
     }
-    // Party size: match normal ask AND out-of-range error re-ask
+    // Match normal ask + out-of-range error re-ask
     if (t.includes('party') || t.includes('how many') || t.includes('number of people') ||
         t.includes('guests') || t.includes('people in your') ||
         t.includes('between 1 and 20') || t.includes('valid number of people')) {
@@ -197,13 +196,9 @@ var sdk = apigClientFactory.newClient({});
     return null;
   }
 
-  // isReask: true when the bot is re-asking after a validation error.
-  // Renders pickers in compact mode to prevent the widget from growing larger.
-  function buildQuickReplies(botText, isReask) {
+  function buildQuickReplies(botText) {
     var result = detectQuickReplySet(botText);
     if (!result) return '';
-
-    var compactClass = isReask ? ' picker-compact' : '';
 
     if (result.type === 'buttons') {
       var titleHtml = result.title
@@ -215,32 +210,31 @@ var sdk = apigClientFactory.newClient({});
                  escapeHtml(r.label) + '</button>';
       }).join('');
 
-      return '<div class="quick-replies' + compactClass + '">' + titleHtml + btns + '</div>';
+      return '<div class="quick-replies">' + titleHtml + btns + '</div>';
     }
     
     if (result.type === 'date-picker') {
-      return buildDatePicker(result.title, isReask);
+      return buildDatePicker(result.title);
     }
     
     if (result.type === 'time-picker') {
-      return buildTimePicker(result.title, isReask);
+      return buildTimePicker(result.title);
     }
     
     if (result.type === 'party-picker') {
-      return buildPartyPicker(result.title, isReask);
+      return buildPartyPicker(result.title);
     }
     
     return '';
   }
 
   /* ── DATE PICKER ──────────────────────────────────────────── */
-  function buildDatePicker(title, isReask) {
+  function buildDatePicker(title) {
     var today = new Date();
     var currentMonth = today.getMonth();
     var currentYear = today.getFullYear();
-    var compactClass = isReask ? ' picker-compact' : '';
     
-    var html = '<div class="picker-container' + compactClass + '" data-picker="date">';
+    var html = '<div class="picker-container" data-picker="date">';
     html += '<div class="picker-title">' + escapeHtml(title) + '</div>';
     html += '<div class="date-picker">';
     html += '<div class="date-picker-header">';
@@ -296,9 +290,8 @@ var sdk = apigClientFactory.newClient({});
   }
 
   /* ── TIME PICKER ──────────────────────────────────────────── */
-  function buildTimePicker(title, isReask) {
-    var compactClass = isReask ? ' picker-compact' : '';
-    var html = '<div class="picker-container' + compactClass + '" data-picker="time">';
+  function buildTimePicker(title) {
+    var html = '<div class="picker-container" data-picker="time">';
     html += '<div class="picker-title">' + escapeHtml(title) + '</div>';
     html += '<div class="time-picker">';
     html += '<div class="time-display" data-time-display>5:00 PM</div>';
@@ -337,9 +330,8 @@ var sdk = apigClientFactory.newClient({});
   }
 
   /* ── PARTY PICKER ─────────────────────────────────────────── */
-  function buildPartyPicker(title, isReask) {
-    var compactClass = isReask ? ' picker-compact' : '';
-    var html = '<div class="picker-container' + compactClass + '" data-picker="party">';
+  function buildPartyPicker(title) {
+    var html = '<div class="picker-container" data-picker="party">';
     html += '<div class="picker-title">' + escapeHtml(title) + '</div>';
     html += '<div class="party-picker">';
     
@@ -429,37 +421,13 @@ var sdk = apigClientFactory.newClient({});
     if (el) el.remove();
   }
 
-  /* ── ERROR RE-ASK DETECTION ──────────────────────────────── */
-  // These phrases indicate validation failed and bot is re-asking the same slot.
-  // In this case we render pickers in compact mode.
-  var REASK_PHRASES = [
-    "doesn't look like a valid time",
-    "doesn't look right",
-    "out of range",
-    "between 1 and 20",
-    "valid number of people",
-    "i only have suggestions for",
-    "i don't have suggestions for",
-    "future date",
-    "in the past",
-    "valid date",
-    "please choose from",
-    "please enter a number"
-  ];
-
-  function isReaskMessage(text) {
-    var lower = text.toLowerCase();
-    return REASK_PHRASES.some(function(p) { return lower.indexOf(p) !== -1; });
-  }
-
   /* ── RENDER: BOT MESSAGE ─────────────────────────────────── */
   function addBotMessage(text) {
     var el = document.createElement('div');
     el.className = 'msg-row';
 
-    var reask = isReaskMessage(text);
     // Don't show quick replies after a confirmation — conversation is done
-    var quickRepliesHtml = isConfirmation(text) ? '' : buildQuickReplies(text, reask);
+    var quickRepliesHtml = isConfirmation(text) ? '' : buildQuickReplies(text);
     var confirmCardHtml  = isConfirmation(text) ? buildConfirmCard() : '';
 
     el.innerHTML = [
