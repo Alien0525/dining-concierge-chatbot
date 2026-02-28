@@ -29,7 +29,7 @@ API Gateway  ──►  Lambda LF0  ──►  Amazon Lex V2
                             OpenSearch        DynamoDB
                           (restaurant IDs)  (full details)
                                    ╲           ╱
-                                    SES Email
+                                     SES Email
 ```
 
 The frontend sends messages to API Gateway, which invokes **LF0** to relay them to **Amazon Lex**. Lex routes the conversation through **LF1**, a code hook that validates slot values and saves user preferences. On fulfillment, LF1 pushes a structured request to an **SQS queue**. A **CloudWatch** rule triggers **LF2** every minute — it polls the queue, queries **OpenSearch** for random matching restaurant IDs, fetches full details from **DynamoDB**, and delivers a formatted HTML email via **SES**.
