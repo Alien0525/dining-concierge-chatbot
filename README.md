@@ -181,6 +181,13 @@ The frontend sends messages to API Gateway, which invokes **LF0** to relay them 
 
 ---
 
+### AWS — Opensearch
+
+**domain**
+![Opensearch Domain](screenshots/openseach/opensearch-domain.png)
+
+---
+
 ### AWS — DynamoDB
 
 **Tables**
@@ -237,6 +244,9 @@ The frontend sends messages to API Gateway, which invokes **LF0** to relay them 
 
 **LF1 logs — flow 2**
 ![LF1 logs flow 2](screenshots/cloudwatch/logs-lf1-flow-2.png)
+
+**LF2 logs**
+![LF1 logs flow](screenshots/cloudwatch/logs-lf2-flow.png)
 
 ---
 
