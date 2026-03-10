@@ -2,8 +2,6 @@
 
 A serverless, microservice-driven dining recommendation system built on AWS. The application conducts a natural language conversation with the user to collect dining preferences, then asynchronously delivers personalized restaurant suggestions via email.
 
-Live demo: https://amanns-dining-concierge-nyc.s3.us-east-1.amazonaws.com/index.html
-
 ---
 
 ## Architecture
